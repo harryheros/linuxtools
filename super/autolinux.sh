@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Project: AutoLinux - Unified Linux Auto-Installer
-# Version: 2.1.0
-# Description: BIOS + UEFI compatible automated reinstall script for Debian
-#              and Ubuntu. Debian uses preseed netboot; Ubuntu uses the
-#              official live-server installer with autoinstall.
+# Version: 2.0.0
+# Description: High-performance, BIOS + UEFI compatible automated network
+#              installer for Debian and Ubuntu systems.
 #
 # Author: Harry / HarryLinux Tools
+# GitHub: https://github.com/harryheros/LinuxTools
+# Copyright (C) 2026 HarryLinux Tools.
+#
 # License: GNU General Public License v3.0 (GPL-3.0)
 # ==============================================================================
 
@@ -25,8 +27,9 @@ OS_TYPE="debian"
 RELEASE=""
 SSH_PORT="22"
 ROOT_PASS="Harry888"
-VERSION="2.1.0"
+VERSION="2.0.0"
 DEFAULT_PASSWORD_USED=1
+SEED_URL=""
 HOSTNAME_VALUE="autolinux"
 DNS1="8.8.8.8"
 DNS2="1.1.1.1"
@@ -69,14 +72,15 @@ show_help() {
     echo -e "  ${YELLOW}-u [22|24]${NC}           Install Ubuntu (default: 24)"
     echo -e "  ${YELLOW}-p password${NC}          Set root password (default: Harry888)"
     echo -e "  ${YELLOW}-port / --port N${NC}     Set SSH port (default: 22)"
+    echo -e "  ${YELLOW}--seed-url URL${NC}        Ubuntu NoCloud seed base URL"
     echo -e "  ${YELLOW}-h / --help${NC}          Show this help"
     echo ""
     echo -e "${BOLD}Examples:${NC}"
-    echo -e "  bash autolinux.sh                  # Debian 12"
-    echo -e "  bash autolinux.sh -d 13            # Debian 13"
-    echo -e "  bash autolinux.sh -u               # Ubuntu 24.04"
-    echo -e "  bash autolinux.sh -u 22            # Ubuntu 22.04"
-    echo -e "  bash autolinux.sh -u 24 -p mypass --port 2222"
+    echo -e "  bash autolinux.sh"
+    echo -e "  bash autolinux.sh -d 13"
+    echo -e "  bash autolinux.sh -u"
+    echo -e "  bash autolinux.sh -u 22 --seed-url https://raw.githubusercontent.com/USER/REPO/main/ubuntu22/"
+    echo -e "  bash autolinux.sh -u 24 -p mypass --port 2222 --seed-url https://raw.githubusercontent.com/USER/REPO/main/ubuntu24/"
 }
 
 # --- Argument Parsing ---
@@ -131,6 +135,11 @@ while [[ "$#" -gt 0 ]]; do
                 die "Invalid port number '${2:-}' (1-65535)."
             fi
             ;;
+        --seed-url)
+            [ -n "${2:-}" ] || die "Seed URL cannot be empty."
+            SEED_URL="$2"
+            shift 2
+            ;;
         -h|--help)
             show_help
             exit 0
@@ -154,7 +163,7 @@ require_root
 clear
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}${BOLD}            AutoLinux Unified Installer v${VERSION}${NC}"
-echo -e "${GREEN}                Copyright (C) 2026 HarryLinux Tools${NC}"
+echo -e "${GREEN}        Copyright (C) 2026 HarryLinux Tools / Harry${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 echo -e "\n${BOLD}${CYAN}Step: Pre-installing essential tools...${NC}"
@@ -225,8 +234,8 @@ echo -e "\n${BOLD}${CYAN}Step: Detecting environment and network...${NC}"
 
 detect_root_disk() {
     local root_src pkname candidate
-
     root_src="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+
     if [ -n "$root_src" ]; then
         pkname="$(lsblk -no PKNAME "$root_src" 2>/dev/null | head -n1 || true)"
         if [ -n "$pkname" ]; then
@@ -284,6 +293,7 @@ prefix_to_mask() {
 }
 V_NETMASK="$(prefix_to_mask "$V_PREFIX")"
 
+# --- Resolve release name ---
 if [ "$OS_TYPE" = "debian" ]; then
     case "$RELEASE" in
         11) REL_NAME="bullseye" ;;
@@ -312,7 +322,7 @@ rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
 
 # ==============================================================================
-# DEBIAN INSTALLATION PATH
+# DEBIAN INSTALLATION PATH (preseed + netboot)
 # ==============================================================================
 install_debian() {
     echo -e "\n${BOLD}${CYAN}Step: Fetching Debian network installer...${NC}"
@@ -431,20 +441,27 @@ EOF
 }
 
 # ==============================================================================
-# UBUNTU INSTALLATION PATH
+# UBUNTU INSTALLATION PATH (official live-server + external NoCloud seed)
 # ==============================================================================
 install_ubuntu() {
-    echo -e "\n${BOLD}${CYAN}Step: Preparing Ubuntu live-server autoinstall...${NC}"
+    echo -e "\n${BOLD}${CYAN}Step: Preparing Ubuntu live-server installer...${NC}"
 
     local mirror iso_file iso_url hashed_pass
+
+    [ -n "${SEED_URL:-}" ] || die "Ubuntu install requires --seed-url"
+    case "$SEED_URL" in
+        */) : ;;
+        *) SEED_URL="${SEED_URL}/" ;;
+    esac
+
     mirror="https://releases.ubuntu.com/${REL_NAME}/"
 
     info "Resolving latest Ubuntu ${FULL_VER} ISO filename..."
     iso_file="$(wget -qO- "${mirror}SHA256SUMS" | grep -oE "ubuntu-${FULL_VER}\.[0-9]+-live-server-amd64\.iso" | sort -V | tail -n1 || true)"
-    [ -n "${iso_file:-}" ] || die "Could not resolve Ubuntu ${FULL_VER} ISO filename from ${mirror}SHA256SUMS"
+    [ -n "${iso_file:-}" ] || die "Could not resolve Ubuntu ${FULL_VER} ISO filename."
 
-    info "Latest ISO: ${iso_file}"
     iso_url="${mirror}${iso_file}"
+    info "Latest ISO: ${iso_file}"
 
     wget -O "${WORKDIR}/${iso_file}" "${iso_url}"
 
@@ -452,11 +469,20 @@ install_ubuntu() {
     mount -o loop,ro "${WORKDIR}/${iso_file}" "${WORKDIR}/iso_mount"
 
     [ -f "${WORKDIR}/iso_mount/casper/vmlinuz" ] || die "Missing casper/vmlinuz in ISO."
-    [ -f "${WORKDIR}/iso_mount/casper/initrd" ] || die "Missing casper/initrd in ISO."
+    [ -f "${WORKDIR}/iso_mount/casper/initrd" ]  || die "Missing casper/initrd in ISO."
+
+    rm -f /boot/vmlinuz-*autolinux /boot/initrd-*autolinux* 2>/dev/null || true
+    cp "${WORKDIR}/iso_mount/casper/vmlinuz" "/boot/vmlinuz-ubuntu${RELEASE}-autolinux"
+    cp "${WORKDIR}/iso_mount/casper/initrd"  "/boot/initrd-ubuntu${RELEASE}-autolinux.gz"
+
+    umount -lf "${WORKDIR}/iso_mount" >/dev/null 2>&1 || true
 
     hashed_pass="$(openssl passwd -6 "${ROOT_PASS}")"
 
-    cat > "${WORKDIR}/autoinstall.yaml" <<EOF
+    mkdir -p "${WORKDIR}/seed"
+
+    cat > "${WORKDIR}/seed/user-data" <<EOF
+#cloud-config
 autoinstall:
   version: 1
   locale: en_US.UTF-8
@@ -508,37 +534,21 @@ autoinstall:
     - curtin in-target -- bash -c "grep -q '^net.ipv4.tcp_congestion_control=bbr$' /etc/sysctl.conf || echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf"
 EOF
 
-    mkdir -p "${WORKDIR}/initrd_repack"
-    cd "${WORKDIR}/initrd_repack"
+    : > "${WORKDIR}/seed/meta-data"
 
-    # Extract original initrd without patching casper.
-    if command -v unmkinitramfs >/dev/null 2>&1; then
-        if ! unmkinitramfs "${WORKDIR}/iso_mount/casper/initrd" . >/dev/null 2>&1; then
-            gzip -dc "${WORKDIR}/iso_mount/casper/initrd" | cpio -idmu >/dev/null 2>&1
-        fi
-    else
-        gzip -dc "${WORKDIR}/iso_mount/casper/initrd" | cpio -idmu >/dev/null 2>&1
-    fi
-
-    # Inject autoinstall config into installer root.
-    cp "${WORKDIR}/autoinstall.yaml" ./autoinstall.yaml
-
-    rm -f /boot/vmlinuz-*autolinux /boot/initrd-*autolinux* 2>/dev/null || true
-    find . | cpio -H newc -o 2>/dev/null | gzip -9 > "/boot/initrd-ubuntu${RELEASE}-autolinux.gz"
-    cp "${WORKDIR}/iso_mount/casper/vmlinuz" "/boot/vmlinuz-ubuntu${RELEASE}-autolinux"
-
-    umount -lf "${WORKDIR}/iso_mount" >/dev/null 2>&1 || true
+    echo -e "${YELLOW}Ubuntu seed files generated in: ${WORKDIR}/seed${NC}"
+    echo -e "${YELLOW}Upload these two files to: ${SEED_URL}${NC}"
+    echo -e "${YELLOW}  - user-data${NC}"
+    echo -e "${YELLOW}  - meta-data${NC}"
 
     KERNEL_PATH="/boot/vmlinuz-ubuntu${RELEASE}-autolinux"
     INITRD_PATH="/boot/initrd-ubuntu${RELEASE}-autolinux.gz"
 
-    # Official live-server installer still needs url=<ISO>.
-    # autoinstall.yaml is provided from installer root via subiquity.autoinstallpath.
-    KERNEL_APPEND="root=/dev/ram0 ramdisk_size=1500000 ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}:${HOSTNAME_VALUE}:${INTERFACE}:none:${DNS1}:${DNS2} url=${iso_url} autoinstall subiquity.autoinstallpath=/autoinstall.yaml cloud-config-url=/dev/null fsck.mode=skip ---"
+    KERNEL_APPEND="root=/dev/ram0 ramdisk_size=1500000 ip=dhcp url=${iso_url} autoinstall ds=nocloud-net\\;s=${SEED_URL} cloud-config-url=/dev/null nomodeset fsck.mode=skip ---"
     GRUB_TITLE="AutoLinux-Ubuntu${RELEASE}"
 }
 
-# --- Run installer path ---
+# --- Run the appropriate installer ---
 if [ "$OS_TYPE" = "debian" ]; then
     install_debian
 else
@@ -546,7 +556,7 @@ else
 fi
 
 # ==============================================================================
-# GRUB CONFIGURATION
+# GRUB CONFIGURATION (shared for both)
 # ==============================================================================
 echo -e "\n${BOLD}${CYAN}Step: Patching GRUB bootloader...${NC}"
 
@@ -562,8 +572,6 @@ cat > /etc/grub.d/40_custom <<EOF
 exec tail -n +3 \$0
 
 menuentry '${GRUB_TITLE}' --class gnu-linux {
-    load_video
-    insmod all_video
     insmod gzio
     insmod part_gpt
     insmod part_msdos
@@ -612,11 +620,16 @@ echo -e "    Disk     : ${YELLOW}${REAL_DISK}${NC}"
 echo -e "    IP       : ${YELLOW}${V_IP}${NC}"
 echo -e "    SSH Port : ${YELLOW}${SSH_PORT}${NC}"
 
-if [ "$DEFAULT_PASSWORD_USED" -eq 1 ]; then
-    echo -e "\n${YELLOW}Default root password is being used. Change it after first login.${NC}"
+if [ "$OS_TYPE" = "ubuntu" ]; then
+    echo -e "    Seed URL : ${YELLOW}${SEED_URL}${NC}"
 fi
 
-echo -e "${RED}${BOLD}The system will reboot and start the unattended installer.${NC}"
+echo -e "${RED}${BOLD}ATTENTION: The system will reboot into the installer.${NC}"
+
+if [ "$DEFAULT_PASSWORD_USED" -eq 1 ]; then
+    echo -e "\n${YELLOW}Default root password is set. Please change it after first login.${NC}"
+fi
+
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 echo -ne "\nRebooting in "
