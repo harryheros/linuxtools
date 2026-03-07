@@ -92,10 +92,10 @@ if [ "$OS_TYPE" = "debian" ] && [ -z "$RELEASE" ]; then RELEASE="12"; fi
 if [ "$OS_TYPE" = "ubuntu" ] && [ -z "$RELEASE" ]; then RELEASE="24"; fi
 
 clear
-echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌${NC}"
+echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
 echo -e "${GREEN}${BOLD}            AutoLinux Unified Installer v${VERSION}${NC}"
 echo -e "${GREEN}        Copyright (C) 2026 HarryLinux Tools / Harry${NC}"
-echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌${NC}"
+echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
 
 echo -e "\n${BOLD}${CYAN}Step: Pre-installing essential tools...${NC}"
 export DEBIAN_FRONTEND=noninteractive
@@ -302,34 +302,24 @@ EOF
 # Download to RAM → inject cloud-init → dd to disk → reboot
 # ==============================================================================
 install_ubuntu() {
-    echo -e "\n${BOLD}${CYAN}Step: Installing Ubuntu via RAM-Injected Cloud Image...${NC}"
+    echo -e "\n${BOLD}${CYAN}Step: Installing Ubuntu via Cloud Image...${NC}"
 
     case "$RELEASE" in
         22) IMG_URL="https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-amd64.img" ;;
         *)  IMG_URL="https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img" ;;
     esac
 
-    # --- Download image to RAM (avoid dd overwriting itself) ---
-    RAM_DIR="/tmp/autolinux_ram"
-    mkdir -p "$RAM_DIR"
-    mount -t tmpfs -o size=1500M tmpfs "$RAM_DIR"
-    IMG_PATH="${RAM_DIR}/ubuntu-cloud.img"
-
-    echo -e "${CYAN}Downloading Ubuntu cloud image to RAM (~600MB)...${NC}"
-    wget --continue -O "${IMG_PATH}" "${IMG_URL}"
-
-    # --- Mount image and inject cloud-init config ---
-    echo -e "${CYAN}Injecting cloud-init configuration...${NC}"
+    # --- Download cloud image (~650MB) directly to disk swap space to avoid RAM issues ---
+    # We write to a temp file on /tmp (disk-backed), not RAM
+    IMG_PATH="/tmp/ubuntu-cloud.img"
+    echo -e "${CYAN}Downloading Ubuntu cloud image (~650MB)...${NC}"
+    wget --continue --show-progress -O "${IMG_PATH}" "${IMG_URL}"
 
     # --- Inject cloud-init via debugfs (no mount needed) ---
-    # debugfs writes directly to the ext4 filesystem inside the image,
-    # bypassing all loop/kpartx/overlapping issues entirely.
-
-    # Generate config files to a temp directory first
-    TEMP_CFG="${RAM_DIR}/cloud_cfg"
+    echo -e "${CYAN}Injecting cloud-init configuration...${NC}"
+    TEMP_CFG="/tmp/autolinux_cfg"
     mkdir -p "${TEMP_CFG}"
 
-    # Write config files to temp dir
     cat > "${TEMP_CFG}/meta-data" <<EOF
 instance-id: autolinux-$(date +%s)
 local-hostname: ubuntu
@@ -345,7 +335,6 @@ chpasswd:
   list: |
     root:${ROOT_PASS}
   expire: false
-
 write_files:
   - path: /etc/netplan/99-autolinux.yaml
     permissions: '0600'
@@ -355,8 +344,7 @@ write_files:
         ethernets:
           ${INTERFACE}:
             dhcp4: false
-            addresses:
-              - ${V_IP}/${V_PREFIX}
+            addresses: [${V_IP}/${V_PREFIX}]
             routes:
               - to: default
                 via: ${V_GATEWAY}
@@ -374,7 +362,6 @@ write_files:
   - path: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
     content: |
       network: {config: disabled}
-
 runcmd:
   - netplan apply || true
   - systemctl restart ssh || systemctl restart sshd || true
@@ -382,82 +369,89 @@ runcmd:
   - resize2fs /dev/sda1 || true
 EOF
 
-    # Find root partition using fdisk + kpartx
-    # losetup -D must NOT be called here — tmpfs is still mounted
+    # Find ext4 root partition via debugfs
     LOOPDEV="$(losetup --find --show -P "${IMG_PATH}")"
     sleep 2
-
-    # Force kernel to re-read partition table
     kpartx -av "${LOOPDEV}" 2>/dev/null || true
     partprobe "${LOOPDEV}" 2>/dev/null || true
     sleep 2
 
-    # Find ext4 partition
-    SRC_PART=$(lsblk -lnp -o NAME,FSTYPE "$LOOPDEV" 2>/dev/null | grep "ext4" | awk '{print $1}' | head -1)
-
-    # Fallback: use kpartx mapper device
+    SRC_PART=$(lsblk -lnp -o NAME,FSTYPE "${LOOPDEV}" 2>/dev/null | grep "ext4" | awk '{print $1}' | head -1)
     if [ -z "$SRC_PART" ]; then
         MAP_NAME="$(basename "${LOOPDEV}")"
         [ -b "/dev/mapper/${MAP_NAME}p1" ] && SRC_PART="/dev/mapper/${MAP_NAME}p1"
     fi
-
-    # Last fallback: use fdisk to find partition and debugfs directly on image
-    if [ -z "$SRC_PART" ]; then
-        echo -e "${YELLOW}Using direct image access via debugfs...${NC}"
-        SRC_PART="${IMG_PATH}"
-    fi
-
+    [ -z "$SRC_PART" ] && SRC_PART="${IMG_PATH}"
     echo -e "${CYAN}Root partition: ${SRC_PART}${NC}"
 
-    echo -e "${CYAN}Injecting cloud-init via debugfs...${NC}"
-    debugfs -w -R "mkdir /var"                        "$SRC_PART" 2>/dev/null || true
-    debugfs -w -R "mkdir /var/lib"                    "$SRC_PART" 2>/dev/null || true
-    debugfs -w -R "mkdir /var/lib/cloud"              "$SRC_PART" 2>/dev/null || true
-    debugfs -w -R "mkdir /var/lib/cloud/seed"         "$SRC_PART" 2>/dev/null || true
-    debugfs -w -R "mkdir /var/lib/cloud/seed/nocloud" "$SRC_PART" 2>/dev/null || true
-    debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "$SRC_PART"
-    debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "$SRC_PART"
-
+    debugfs -w -R "mkdir /var"                        "${SRC_PART}" 2>/dev/null || true
+    debugfs -w -R "mkdir /var/lib"                    "${SRC_PART}" 2>/dev/null || true
+    debugfs -w -R "mkdir /var/lib/cloud"              "${SRC_PART}" 2>/dev/null || true
+    debugfs -w -R "mkdir /var/lib/cloud/seed"         "${SRC_PART}" 2>/dev/null || true
+    debugfs -w -R "mkdir /var/lib/cloud/seed/nocloud" "${SRC_PART}" 2>/dev/null || true
+    debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${SRC_PART}"
+    debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${SRC_PART}"
     sync
+    kpartx -dv "${LOOPDEV}" 2>/dev/null || true
     losetup -d "${LOOPDEV}" 2>/dev/null || true
     echo -e "${GREEN}cloud-init injection complete!${NC}"
 
-
-    # --- dd from RAM to disk ---
-    # --- dd from RAM to disk ---
-    echo -e "${CYAN}Writing image from RAM to ${REAL_DISK}...${NC}"
-    sync
+    # --- dd image to disk ---
+    echo -e "${CYAN}Writing image to ${REAL_DISK}...${NC}"
     dd if="${IMG_PATH}" of="${REAL_DISK}" bs=4M status=progress conv=fsync
+    rm -f "${IMG_PATH}"
 
-    # --- Fix GPT structure ---
-    echo -e "${CYAN}Fixing GPT structure and partition flags...${NC}"
+    # --- Fix GPT backup header ---
+    echo -e "${CYAN}Fixing GPT structure...${NC}"
     if ! command -v sgdisk >/dev/null 2>&1; then
-        apt-get install -y gdisk 2>/dev/null || yum install -y gdisk 2>/dev/null || true
+        apt-get install -y gdisk 2>/dev/null || true
     fi
-    sgdisk -e "${REAL_DISK}" || true          # relocate backup header to disk end
-    sgdisk -t 15:ef00 "${REAL_DISK}" || true  # ensure p15 is flagged as EFI system
+    sgdisk -e "${REAL_DISK}" 2>/dev/null || true
+    sgdisk -t 15:ef00 "${REAL_DISK}" 2>/dev/null || true
     partprobe "${REAL_DISK}" || true
     sleep 2
 
-    # --- Register EFI boot entry ---
-    if [ -d /sys/firmware/efi ]; then
-        echo -e "${CYAN}Registering Ubuntu EFI boot entry...${NC}"
-        if ! command -v efibootmgr >/dev/null 2>&1; then
-            apt-get install -y efibootmgr 2>/dev/null || true
-        fi
-        efibootmgr -B -L "Ubuntu" 2>/dev/null || true
-        efibootmgr -c -d "${REAL_DISK}" -p 15 -L "Ubuntu" \
-            -l "\\EFI\\ubuntu\\shimx64.efi" || true
-        echo -e "${GREEN}EFI boot entry registered!${NC}"
+    # --- chroot grub-install: let Ubuntu write its own EFI entry ---
+    echo -e "${CYAN}Installing GRUB via chroot...${NC}"
+    case "${REAL_DISK}" in
+        *nvme*|*mmcblk*) ROOT_PART="${REAL_DISK}p1"; EFI_PART="${REAL_DISK}p15" ;;
+        *)                ROOT_PART="${REAL_DISK}1";  EFI_PART="${REAL_DISK}15"  ;;
+    esac
+
+    NEWROOT="/mnt/autolinux_newroot"
+    mkdir -p "${NEWROOT}"
+    if mount "${ROOT_PART}" "${NEWROOT}"; then
+        mkdir -p "${NEWROOT}/boot/efi"
+        mount "${EFI_PART}" "${NEWROOT}/boot/efi" 2>/dev/null || true
+        for d in /dev /dev/pts /proc /sys /run; do
+            mount --bind "$d" "${NEWROOT}${d}" 2>/dev/null || true
+        done
+
+        chroot "${NEWROOT}" grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=ubuntu \
+            --recheck 2>/dev/null || \
+        chroot "${NEWROOT}" grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=ubuntu 2>/dev/null || true
+
+        chroot "${NEWROOT}" update-grub 2>/dev/null || true
+        echo -e "${GREEN}GRUB installed successfully!${NC}"
+
+        # Unmount in reverse order
+        for d in /run /sys /proc /dev/pts /dev; do
+            umount "${NEWROOT}${d}" 2>/dev/null || true
+        done
+        umount "${NEWROOT}/boot/efi" 2>/dev/null || true
+        umount "${NEWROOT}" 2>/dev/null || true
+    else
+        echo -e "${YELLOW}Warning: Could not mount ${ROOT_PART} for chroot grub-install.${NC}"
     fi
 
-    # --- Cleanup RAM ---
-    sync
-    cd / && umount "${RAM_DIR}" 2>/dev/null || true
-
-
-    UBUNTU_CLOUD=1
     GRUB_TITLE=""
+    UBUNTU_CLOUD=1
 }
 # --- Run the appropriate installer ---
 if [ "$OS_TYPE" = "debian" ]; then
@@ -468,17 +462,18 @@ fi
 
 # ==============================================================================
 # GRUB CONFIGURATION
-# Debian only — Ubuntu cloud image handles its own GRUB inside chroot
 # ==============================================================================
-if [ "${UBUNTU_CLOUD:-0}" -eq 0 ]; then
-    echo -e "\n${BOLD}${CYAN}Step: Patching GRUB bootloader...${NC}"
+echo -e "\n${BOLD}${CYAN}Step: Patching GRUB bootloader...${NC}"
 
+if [ "$OS_TYPE" = "ubuntu" ]; then
+    # Ubuntu: GRUB already installed via chroot grub-install in install_ubuntu()
+    echo -e "${GREEN}Ubuntu GRUB handled by chroot — skipping.${NC}"
+else
+    # Debian: write 40_custom with netboot kernel/initrd
     BOOT_UUID=$(/usr/sbin/grub-probe --target=fs_uuid /boot 2>/dev/null || \
                 grub-probe --target=fs_uuid /boot)
-
     KERN_BN="$(basename "${KERNEL_PATH}")"
     INIT_BN="$(basename "${INITRD_PATH}")"
-
     cat > /etc/grub.d/40_custom <<EOF
 #!/bin/sh
 exec tail -n +3 \$0
@@ -499,19 +494,18 @@ menuentry '${GRUB_TITLE}' {
 }
 EOF
     chmod +x /etc/grub.d/40_custom
-
     sed -i "s/GRUB_DEFAULT=.*/GRUB_DEFAULT=\"${GRUB_TITLE}\"/" /etc/default/grub
     sed -i '/GRUB_DISABLE_OS_PROBER/d' /etc/default/grub
     echo "GRUB_DISABLE_OS_PROBER=true" >> /etc/default/grub
+fi
 
-    echo -e "\n${BOLD}${CYAN}Step: Updating GRUB configuration...${NC}"
-    if command -v update-grub >/dev/null 2>&1; then
-        update-grub
-    else
-        GRUB_CFG_PATH=$(find /boot/grub2 /boot/grub /etc -name grub.cfg 2>/dev/null | head -n1)
-        [ -z "$GRUB_CFG_PATH" ] && GRUB_CFG_PATH="/boot/grub2/grub.cfg"
-        grub2-mkconfig -o "$GRUB_CFG_PATH"
-    fi
+echo -e "\n${BOLD}${CYAN}Step: Updating GRUB configuration...${NC}"
+if command -v update-grub >/dev/null 2>&1; then
+    update-grub
+else
+    GRUB_CFG_PATH=$(find /boot/grub2 /boot/grub /etc -name grub.cfg 2>/dev/null | head -n1)
+    [ -z "$GRUB_CFG_PATH" ] && GRUB_CFG_PATH="/boot/grub2/grub.cfg"
+    grub2-mkconfig -o "$GRUB_CFG_PATH"
 fi
 
 # ==============================================================================
@@ -524,12 +518,8 @@ echo -e "    IP       : ${YELLOW}${V_IP}${NC}"
 echo -e "    SSH Port : ${YELLOW}${SSH_PORT}${NC}"
 echo -e "    Password : ${YELLOW}${ROOT_PASS}${NC}"
 
-if [ "${UBUNTU_CLOUD:-0}" -eq 1 ]; then
-    echo -e "${RED}${BOLD}ATTENTION: Ubuntu written to disk. Rebooting directly into Ubuntu.${NC}"
-else
-    echo -e "${RED}${BOLD}ATTENTION: Installation takes 5-30 minutes depending on network speed.${NC}"
-    echo -e "${RED}${BOLD}The system will reboot automatically when finished.${NC}"
-fi
+echo -e "${RED}${BOLD}ATTENTION: Installation takes 5-30 minutes depending on network speed.${NC}"
+echo -e "${RED}${BOLD}The system will reboot automatically when finished.${NC}"
 
 if [ "$DEFAULT_PASSWORD_USED" -eq 1 ]; then
     echo -e "\n${YELLOW}Default root password is set. Please change it after first login.${NC}"
