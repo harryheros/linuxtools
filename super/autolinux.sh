@@ -350,9 +350,20 @@ EOF
 install_ubuntu() {
     echo -e "\n${BOLD}${CYAN}Step: Fetching Ubuntu network installer...${NC}"
 
-    MIRROR="https://releases.ubuntu.com/${FULL_VER}/"
-    ISO_FILE="ubuntu-${FULL_VER}-live-server-amd64.iso"
+    MIRROR="https://releases.ubuntu.com/${REL_NAME}/"
 
+    # Dynamically resolve the latest ISO filename from SHA256SUMS
+    # Ubuntu uses full point-release names like 22.04.5, 24.04.4 which change over time
+    echo -e "${CYAN}Resolving latest Ubuntu ${FULL_VER} ISO filename...${NC}"
+    ISO_FILE=$(wget -qO- "${MIRROR}SHA256SUMS" | grep -oE "ubuntu-${FULL_VER}\.[0-9]+-live-server-amd64\.iso" | tail -n1)
+
+    if [ -z "$ISO_FILE" ]; then
+        echo -e "${RED}Error: Could not resolve Ubuntu ${FULL_VER} ISO filename.${NC}"
+        echo -e "${YELLOW}Please check: ${MIRROR}${NC}"
+        exit 1
+    fi
+
+    echo -e "${CYAN}Latest ISO: ${ISO_FILE}${NC}"
     wget -O "${WORKDIR}/${ISO_FILE}" "${MIRROR}${ISO_FILE}"
 
     # --- Ubuntu autoinstall user-data ---
