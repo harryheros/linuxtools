@@ -1,115 +1,234 @@
-# 🚀 Harry Surpasser Debian Auto-Installer v1.3.8
+# 🚀 AutoLinux Unified Linux Auto-Installer v2.0
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![OS Support](https://img.shields.io/badge/OS-Debian%2011%20%7C%2012%20%7C%2013-red.svg)](https://www.debian.org/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)  
+[![OS Support](https://img.shields.io/badge/OS-Debian%2011%20%7C%2012%20%7C%2013%20%7C%20Ubuntu%2022.04%20%7C%2024.04-red.svg)](#)  
 [![Platform](https://img.shields.io/badge/Platform-BIOS%20%7C%20UEFI-orange.svg)](#)
 
-Surpasser is a high-performance, BIOS + UEFI compatible automated network installer designed for VPS and bare-metal servers.  
-Updated for 2026, it focuses on predictable deployment, visible installation progress, and maximum real-world compatibility.
+AutoLinux is a high-performance automated Linux installer designed for VPS and bare-metal environments.
 
-This project is built for environments where **clarity, stability, and determinism matter more than theoretical elegance**.
+It provides a unified installation workflow for Debian and Ubuntu, supporting both legacy BIOS and modern UEFI systems while maintaining deterministic behavior and minimal environmental assumptions.
+
+The project focuses on predictable deployment, compatibility across hosting platforms, and a transparent installation process.
 
 ---
 
-## 🛠 Quick Start
+# 🛠 Quick Start
 
 Run as root.
 
-Option 1: Default Installation (Recommended)
+Option 1 — Default Installation (Recommended)
 
 Installs Debian 12 with SSH port 22 and default root password.
-```bash
-bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/surpasser.sh)
-```
-Option 2: Custom Installation
 
-Customize Debian version, root password, or SSH port.
-```bash
-bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/surpasser.sh) -d 13 -p "YourPassword" --port 7777
-```
-⚠️ DATA LOSS WARNING  
-This script will completely wipe the system disk, remove all partitions, and reinstall the operating system.  
-All existing data will be permanently erased.
+    bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh)
 
 ---
 
-## ✨ Key Features (v1.3.8)
+Option 2 — Install Debian
 
-- Cross-Platform Launcher  
-  Supports execution from CentOS 7 / 8 / 9, Fedora, AlmaLinux, Rocky Linux, Debian, and Ubuntu.
+Example: Install Debian 13 with custom password and SSH port.
 
-- Official Debian Installer  
-  All installation images are downloaded directly from deb.debian.org.  
-  No mirrors, no third-party sources, no modification risk.
-
-- BIOS + UEFI Compatible  
-  Works reliably across legacy BIOS and modern UEFI environments.
-
-- Deterministic GRUB Boot Handling  
-  Automatically creates a dedicated Surpasser-AutoInstall boot entry and sets it as default.
-
-- VNC-Friendly Visual Installation  
-  Fixed vga=788 graphics mode ensures stable, visible output in VPS VNC consoles.  
-  Designed specifically to avoid black screen and flicker issues.
-
-- Visible Installation Process  
-  Network configuration, installer source, and key progress steps are printed clearly to reduce misjudgment and panic reboots.
-
-- Smart Network Detection  
-  Automatically adapts to interface naming differences such as eth0, ens18, enpXsY without triggering installer interaction.
-
-- Pure Server Installation  
-  Installs a clean Debian server system with no desktop environment.
-
-- Native Performance Optimization  
-  Enables TCP BBR congestion control and FQ queue discipline by default.
-
-- Reliable Boot-Time Networking  
-  Uses both auto and allow-hotplug mechanisms for maximum compatibility across VPS platforms.
-
-- Safety-Oriented Parameter Validation  
-  Prevents invalid SSH ports and empty passwords from causing unpredictable installation behavior.
+    bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -d 13 -p "YourPassword" --port 7777
 
 ---
 
-## 📂 Supported Operating Systems (2026)
+Option 3 — Install Ubuntu
 
-Target installation systems:
+Example: Install Ubuntu 24.04.
 
-- Debian 13 (Trixie) – Recommended
-- Debian 12 (Bookworm) – Default
+    bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -u 24
+
+---
+
+⚠️ DATA LOSS WARNING
+
+This script will completely wipe the system disk and reinstall the operating system.
+
+All partitions and data on the primary disk will be permanently erased.
+
+---
+
+# ✨ Key Features (v2.0)
+
+### Unified Debian + Ubuntu Installer
+
+Supports both Debian and Ubuntu installations through a single script.
+
+Debian uses the official Debian netboot installer, while Ubuntu uses official cloud images for faster deployment.
+
+---
+
+### BIOS + UEFI Compatible
+
+Works reliably across:
+
+- Legacy BIOS systems
+- Modern UEFI servers
+- VPS platforms with mixed boot environments
+
+---
+
+### Cross-Distribution Launcher
+
+The script can be executed from many Linux environments, including:
+
+- Debian
+- Ubuntu
+- CentOS 7
+- AlmaLinux
+- Rocky Linux
+- Fedora
+
+This allows reinstalling a system without requiring an existing Debian or Ubuntu environment.
+
+---
+
+### Official Distribution Sources
+
+All installation images are downloaded from official upstream sources.
+
+Debian installer images are downloaded from deb.debian.org.
+
+Ubuntu cloud images are downloaded from cloud-images.ubuntu.com.
+
+No third-party mirrors or modified images are used.
+
+---
+
+### Automatic Hardware Detection
+
+AutoLinux automatically detects:
+
+- Primary system disk
+- Active network interface
+- IPv4 address
+- Netmask
+- Default gateway
+
+The installer reuses the existing network configuration to ensure reliable connectivity after installation.
+
+---
+
+### Deterministic Bootloader Handling
+
+For Debian installations, AutoLinux automatically:
+
+- Injects a preseed configuration
+- Creates a dedicated GRUB boot entry
+- Sets it as the default boot target
+
+This ensures the installer runs immediately after reboot without manual intervention.
+
+---
+
+### Fast Ubuntu Deployment
+
+Ubuntu installations use official cloud images with automated configuration via cloud-init.
+
+The process is:
+
+1. Download Ubuntu cloud image  
+2. Inject cloud-init configuration  
+3. Write image directly to disk  
+4. Expand filesystem automatically  
+
+This allows Ubuntu to be installed significantly faster than traditional installers.
+
+---
+
+### Native Performance Optimization
+
+AutoLinux enables modern TCP networking optimizations by default:
+
+- TCP BBR congestion control
+- FQ queue discipline
+
+These settings are widely used in high-performance server environments.
+
+---
+
+### Automatic Disk Expansion
+
+For Ubuntu installations:
+
+- Disk partition expansion is handled automatically
+- Filesystem resizing is performed during first boot
+
+This ensures the system uses the entire disk capacity without manual resizing.
+
+---
+
+### SSH Access Configuration
+
+AutoLinux automatically configures:
+
+- Root login enabled
+- Password authentication enabled
+- Custom SSH port (optional)
+
+This prevents lockout after installation.
+
+---
+
+# 📂 Supported Operating Systems (2026)
+
+### Target Installation Systems
+
+Debian
+
+- Debian 13 (Trixie)
+- Debian 12 (Bookworm) — Default
 - Debian 11 (Bullseye)
 
-Supported origin systems (script execution source):
+Ubuntu
 
-- CentOS 7 / 8 / 9 (Stream)
-- Fedora 30+
-- AlmaLinux 8 / 9
-- Rocky Linux 8 / 9
-- Debian / Ubuntu
+- Ubuntu 24.04 LTS (Noble) — Default
+- Ubuntu 22.04 LTS (Jammy)
 
 ---
 
-## 🛠 Advanced Parameters
+### Supported Source Systems (Script Execution)
 
--d [11|12|13]  
-Select target Debian version.
+The installer can be launched from:
 
--p "password"  
+- Debian
+- Ubuntu
+- CentOS 7
+- AlmaLinux
+- Rocky Linux
+- Fedora
+
+---
+
+# 🛠 Advanced Parameters
+
+-d [11|12|13]
+
+Install Debian with specified version.
+
+-u [22|24]
+
+Install Ubuntu with specified version.
+
+-p password
+
 Set custom root password.
 
---port [number]  
-Set custom SSH port (default: 22, valid range: 1–65535).
+--port N
 
-Example:
-```bash
-bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/surpasser.sh) -d 13 -p "YourSecurePassword" --port 7777
-```
+Set SSH port (1–65535).
+
 ---
 
-## 🔐 Default Credentials
+Example
 
-If no parameters are provided, the script uses the following defaults:
+    bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -u 24 -p "YourSecurePassword" --port 2222
+
+---
+
+# 🔐 Default Credentials
+
+If no parameters are provided, the script uses the following defaults.
 
 Property | Default Value
 --- | ---
@@ -118,38 +237,61 @@ Username | root
 Password | Harry888
 SSH Port | 22
 
-Default root password is set to avoid reinstall lockout.  
-Please change it after first login.
+The default root password prevents installation lockout.
+
+You should change the password after first login.
 
 ---
 
-## 🏆 Design Philosophy
+# 🏗 Installation Architecture
 
-Surpasser is not designed to be clever — it is designed to be reliable.
+AutoLinux uses different installation mechanisms depending on the target OS.
 
-This script prioritizes:
+### Debian
+
+- Official Debian Netboot Installer
+- Automated via Preseed configuration
+- Booted through GRUB chainloading
+
+### Ubuntu
+
+- Official Ubuntu Cloud Image
+- Configuration via cloud-init
+- Disk written directly using qemu-img
+
+This hybrid architecture allows AutoLinux to combine:
+
+- Debian’s reliable installer
+- Ubuntu’s fast cloud deployment
+
+---
+
+# 🏆 Design Philosophy
+
+AutoLinux is not designed to be clever — it is designed to be reliable.
+
+This project prioritizes:
 
 - Predictable behavior
-- Visible progress
-- Deterministic boot flow
+- Deterministic installation flow
+- Maximum VPS compatibility
 - Minimal environmental assumptions
-- Compatibility over abstraction
+- Transparent execution
 
 It intentionally avoids:
 
-- Serial console dependencies
-- Experimental graphics fallback
-- Over-engineered network logic
 - Hidden automation
-- Silent execution
+- Unverified mirrors
+- Distribution-specific assumptions
+- Over-engineered abstractions
 
 The objective is simple:
 
-A system reinstall process that operators can **see**, **understand**, and **trust** — even under poor VNC implementations.
+A Linux reinstall process that operators can understand, trust, and run anywhere.
 
 ---
 
-## ⚖️ License & Author
+# ⚖️ License & Author
 
 Author: Harry  
 Project: https://github.com/harryheros/LinuxTools  
@@ -158,5 +300,6 @@ Copyright (C) 2026 HarryLinux Tools.
 
 Licensed under the GNU General Public License v3.0 (GPLv3).
 
-You are free to use, modify, and redistribute this project under the GPLv3 license.  
+You are free to use, modify, and redistribute this project under the GPLv3 license.
+
 Any derivative work must retain attribution and remain open-sourced under the same license.
