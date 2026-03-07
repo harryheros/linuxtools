@@ -313,20 +313,34 @@ install_ubuntu() {
     echo -e "${CYAN}Downloading Ubuntu cloud image (~650MB)...${NC}"
     wget --continue --show-progress -O "${IMG_PATH}" "${IMG_URL}"
 
-    # --- Map image partitions correctly ---
+    # --- Map image partitions via kpartx ---
     echo -e "${CYAN}Mapping image partitions...${NC}"
-    LOOP_IMG=$(losetup --find --show -P "${IMG_PATH}")
+    if ! command -v kpartx >/dev/null 2>&1; then
+        apt-get install -y kpartx 2>/dev/null || yum install -y kpartx 2>/dev/null || true
+    fi
+
+    LOOP_IMG=$(losetup --find --show "${IMG_PATH}")
+    kpartx -av "${LOOP_IMG}"
     sleep 2
 
-    # Find largest ext4 partition (root)
-    SRC_PART=$(lsblk -lnp -o NAME,FSTYPE,SIZE "${LOOP_IMG}" 2>/dev/null | grep "ext4" | sort -hk3 | tail -n1 | awk '{print $1}')
+    MAP_NAME="$(basename "${LOOP_IMG}")"
+
+    # Scan global lsblk for mapper devices with ext4 (kpartx creates /dev/mapper/loop0p*)
+    SRC_PART=$(lsblk -lnp -o NAME,FSTYPE,SIZE | grep "ext4" | grep "${MAP_NAME}" | sort -hk3 | tail -n1 | awk '{print $1}')
+
+    # Fallback: traditional loop0p1 style
     if [ -z "$SRC_PART" ] || [ ! -b "$SRC_PART" ]; then
-        echo -e "${RED}Error: Failed to map root partition. Partitions found:${NC}"
+        SRC_PART=$(lsblk -lnp -o NAME,FSTYPE,SIZE "${LOOP_IMG}" 2>/dev/null | grep "ext4" | sort -hk3 | tail -n1 | awk '{print $1}')
+    fi
+
+    if [ -z "$SRC_PART" ] || [ ! -b "$SRC_PART" ]; then
+        echo -e "${RED}Error: Failed to map root partition even with kpartx.${NC}"
         lsblk "${LOOP_IMG}"
-        losetup -d "${LOOP_IMG}"
+        kpartx -dv "${LOOP_IMG}" 2>/dev/null || true
+        losetup -d "${LOOP_IMG}" 2>/dev/null || true
         exit 1
     fi
-    echo -e "${CYAN}Root partition: ${SRC_PART}${NC}"
+    echo -e "${GREEN}Root partition: ${SRC_PART}${NC}"
 
     # --- Inject cloud-init via debugfs ---
     echo -e "${CYAN}Injecting cloud-init configuration...${NC}"
@@ -390,7 +404,8 @@ EOF
     debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${SRC_PART}"
     debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${SRC_PART}"
     sync && sleep 1
-    losetup -d "${LOOP_IMG}"
+    kpartx -dv "${LOOP_IMG}" 2>/dev/null || true
+    losetup -d "${LOOP_IMG}" 2>/dev/null || true
     echo -e "${GREEN}cloud-init injection complete!${NC}"
 
     # --- dd to disk ---
