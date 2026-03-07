@@ -313,34 +313,25 @@ install_ubuntu() {
     echo -e "${CYAN}Downloading Ubuntu cloud image (~650MB)...${NC}"
     wget --continue --show-progress -O "${IMG_PATH}" "${IMG_URL}"
 
-    # --- Map image partitions via kpartx ---
-    echo -e "${CYAN}Mapping image partitions...${NC}"
-    if ! command -v kpartx >/dev/null 2>&1; then
-        apt-get install -y kpartx 2>/dev/null || yum install -y kpartx 2>/dev/null || true
-    fi
+    # --- Map root partition via fdisk offset (no kernel partition scan needed) ---
+    echo -e "${CYAN}Calculating partition offset...${NC}"
+    # Find the Linux filesystem partition start sector and sector size
+    START_SECTOR=$(fdisk -l "${IMG_PATH}" 2>/dev/null | grep "Linux filesystem" | head -n1 | awk '{print $2}')
+    SECTOR_SIZE=$(fdisk -l "${IMG_PATH}" 2>/dev/null | grep "^Units" | awk '{print $(NF-1)}')
+    # Fallback sector size
+    [ -z "$SECTOR_SIZE" ] && SECTOR_SIZE=512
+    [ -z "$START_SECTOR" ] && START_SECTOR=2048
+    OFFSET=$(( START_SECTOR * SECTOR_SIZE ))
+    echo -e "${CYAN}Root partition offset: ${OFFSET} bytes (sector ${START_SECTOR} × ${SECTOR_SIZE})${NC}"
 
-    LOOP_IMG=$(losetup --find --show "${IMG_PATH}")
-    kpartx -av "${LOOP_IMG}"
-    sleep 2
-
-    MAP_NAME="$(basename "${LOOP_IMG}")"
-
-    # Scan global lsblk for mapper devices with ext4 (kpartx creates /dev/mapper/loop0p*)
-    SRC_PART=$(lsblk -lnp -o NAME,FSTYPE,SIZE | grep "ext4" | grep "${MAP_NAME}" | sort -hk3 | tail -n1 | awk '{print $1}')
-
-    # Fallback: traditional loop0p1 style
-    if [ -z "$SRC_PART" ] || [ ! -b "$SRC_PART" ]; then
-        SRC_PART=$(lsblk -lnp -o NAME,FSTYPE,SIZE "${LOOP_IMG}" 2>/dev/null | grep "ext4" | sort -hk3 | tail -n1 | awk '{print $1}')
-    fi
-
-    if [ -z "$SRC_PART" ] || [ ! -b "$SRC_PART" ]; then
-        echo -e "${RED}Error: Failed to map root partition even with kpartx.${NC}"
-        lsblk "${LOOP_IMG}"
-        kpartx -dv "${LOOP_IMG}" 2>/dev/null || true
-        losetup -d "${LOOP_IMG}" 2>/dev/null || true
+    LOOP_IMG=$(losetup --find --show -o "${OFFSET}" "${IMG_PATH}")
+    if [ -z "$LOOP_IMG" ] || [ ! -b "$LOOP_IMG" ]; then
+        echo -e "${RED}Error: Failed to map root partition via offset.${NC}"
+        fdisk -l "${IMG_PATH}" | head -20
         exit 1
     fi
-    echo -e "${GREEN}Root partition: ${SRC_PART}${NC}"
+    SRC_PART="${LOOP_IMG}"
+    echo -e "${GREEN}Root partition mapped to: ${SRC_PART}${NC}"
 
     # --- Inject cloud-init via debugfs ---
     echo -e "${CYAN}Injecting cloud-init configuration...${NC}"
@@ -404,7 +395,6 @@ EOF
     debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${SRC_PART}"
     debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${SRC_PART}"
     sync && sleep 1
-    kpartx -dv "${LOOP_IMG}" 2>/dev/null || true
     losetup -d "${LOOP_IMG}" 2>/dev/null || true
     echo -e "${GREEN}cloud-init injection complete!${NC}"
 
