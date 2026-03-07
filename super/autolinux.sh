@@ -442,7 +442,7 @@ EOF
 
     KERNEL_PATH="/boot/vmlinuz-ubuntu${RELEASE}-autolinux"
     INITRD_PATH="/boot/initrd-ubuntu${RELEASE}-autolinux.gz"
-    KERNEL_APPEND="autoinstall ds=nocloud;s=/autoinstall/ ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}::::8.8.8.8 quiet splash ---"
+    KERNEL_APPEND="autoinstall ds=nocloud-net;s=file:///autoinstall/ ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}::::8.8.8.8 quiet splash ---"
     GRUB_TITLE="AutoLinux-Ubuntu${RELEASE}"
 }
 
