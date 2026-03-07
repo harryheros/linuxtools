@@ -450,55 +450,14 @@ BOOT_UUID=$(/usr/sbin/grub-probe --target=fs_uuid /boot 2>/dev/null || grub-prob
 # Generate a single menuentry that works on both UEFI and BIOS:
 # - Uses if/elif inside GRUB script to try linuxefi first (UEFI)
 # - Falls back to linux if linuxefi is not available (BIOS)
-# Directly append our menuentry to grub.cfg.
-# We bypass update-grub entirely because update-grub runs on the current
-# (BIOS) system and would not include linuxefi/initrdefi modules needed
-# for the target UEFI VM. Writing both entries directly ensures the
-# correct commands are available regardless of the boot platform.
-GRUB_CFG=$(find /boot/grub /boot/grub2 -name grub.cfg 2>/dev/null | head -n1)
-[ -z "$GRUB_CFG" ] && GRUB_CFG="/boot/grub/grub.cfg"
+# Write 40_custom with a single universal menuentry.
+# Modern GRUB (Debian 13 / Ubuntu 22+) uses linux/initrd universally
+# for both BIOS and UEFI — linuxefi is legacy and not needed.
+cat > /etc/grub.d/40_custom <<GRUBEOF
+#!/bin/sh
+exec tail -n +3 \$0
 
-echo -e "\n${BOLD}${CYAN}Step: Patching GRUB configuration...${NC}"
-echo -e "${CYAN}Target grub.cfg: ${GRUB_CFG}${NC}"
-
-# Run update-grub first to ensure grub.cfg exists and is up to date
-if command -v update-grub >/dev/null 2>&1; then
-    update-grub 2>/dev/null || true
-else
-    GRUB_CFG_PATH=$(find /boot/grub2 /boot/grub /etc -name grub.cfg 2>/dev/null | head -n1)
-    [ -z "$GRUB_CFG_PATH" ] && GRUB_CFG_PATH="/boot/grub2/grub.cfg"
-    grub2-mkconfig -o "$GRUB_CFG_PATH" 2>/dev/null || true
-fi
-
-# Set default boot entry
-sed -i "s/GRUB_DEFAULT=.*/GRUB_DEFAULT=\"${GRUB_TITLE}\"/" /etc/default/grub
-sed -i '/GRUB_DISABLE_OS_PROBER/d' /etc/default/grub
-echo "GRUB_DISABLE_OS_PROBER=true" >> /etc/default/grub
-
-# Directly append both UEFI and BIOS menuentry blocks to grub.cfg.
-# The target system's GRUB will only successfully execute the block
-# whose commands (linuxefi vs linux) match its own platform.
-cat >> "$GRUB_CFG" <<GRUBEOF
-
-# --- AutoLinux: ${GRUB_TITLE} ---
-menuentry '${GRUB_TITLE}-efi' --class gnu-linux {
-    load_video
-    insmod all_video
-    insmod gzio
-    insmod part_gpt
-    insmod part_msdos
-    insmod ext2
-    insmod linuxefi
-    search --no-floppy --fs-uuid --set=root ${BOOT_UUID}
-    if [ -f ${KERNEL_PATH} ]; then
-        linuxefi ${KERNEL_PATH} ${KERNEL_APPEND}
-        initrdefi ${INITRD_PATH}
-    else
-        linuxefi ${KERNEL_PATH##/boot} ${KERNEL_APPEND}
-        initrdefi ${INITRD_PATH##/boot}
-    fi
-}
-menuentry '${GRUB_TITLE}-bios' --class gnu-linux {
+menuentry '${GRUB_TITLE}' --class gnu-linux {
     load_video
     insmod all_video
     insmod gzio
@@ -515,18 +474,21 @@ menuentry '${GRUB_TITLE}-bios' --class gnu-linux {
     fi
 }
 GRUBEOF
+chmod +x /etc/grub.d/40_custom
 
-# Update GRUB_DEFAULT to point to the EFI entry by default
-sed -i "s/GRUB_DEFAULT=.*/GRUB_DEFAULT=\"${GRUB_TITLE}-efi\"/" /etc/default/grub
+sed -i "s/GRUB_DEFAULT=.*/GRUB_DEFAULT=\"${GRUB_TITLE}\"/" /etc/default/grub
+sed -i '/GRUB_DISABLE_OS_PROBER/d' /etc/default/grub
+echo "GRUB_DISABLE_OS_PROBER=true" >> /etc/default/grub
+
+echo -e "\n${BOLD}${CYAN}Step: Updating GRUB configuration...${NC}"
 if command -v update-grub >/dev/null 2>&1; then
-    update-grub 2>/dev/null || true
+    update-grub
 else
-    grub2-mkconfig -o "$GRUB_CFG" 2>/dev/null || true
+    GRUB_CFG_PATH=$(find /boot/grub2 /boot/grub /etc -name grub.cfg 2>/dev/null | head -n1)
+    [ -z "$GRUB_CFG_PATH" ] && GRUB_CFG_PATH="/boot/grub2/grub.cfg"
+    grub2-mkconfig -o "$GRUB_CFG_PATH"
 fi
 
-# ==============================================================================
-# SUMMARY & REBOOT
-# ==============================================================================
 echo -e "\n${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
 echo -e "${GREEN}[✔] Ready! (v${VERSION})${NC}  Target: ${CYAN}${DISPLAY_NAME}${NC}"
 echo -e "    Disk     : ${YELLOW}${REAL_DISK}${NC}"
