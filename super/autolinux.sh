@@ -321,46 +321,32 @@ install_ubuntu() {
     # --- Mount image and inject cloud-init config ---
     echo -e "${CYAN}Injecting cloud-init configuration...${NC}"
 
-    # Install kpartx if missing (best tool for mapping image partitions)
-    if ! command -v kpartx >/dev/null 2>&1; then
-        apt-get install -y kpartx 2>/dev/null || yum install -y kpartx 2>/dev/null || true
-    fi
-
-    modprobe loop || true
-    losetup -D 2>/dev/null || true
-    LOOPDEV="$(losetup --find --show "${IMG_PATH}")"
+    # Clean up any leftover loop devices for this image
+    sync
+    for lo in $(losetup -j "${IMG_PATH}" 2>/dev/null | cut -d: -f1); do
+        kpartx -dv "$lo" 2>/dev/null || true
+        losetup -d "$lo" 2>/dev/null || true
+    done
 
     SOURCE_MNT="${RAM_DIR}/source_mnt"
     mkdir -p "${SOURCE_MNT}"
 
-    # Try kpartx first
-    SRC_PART=""
-    if command -v kpartx >/dev/null 2>&1; then
-        kpartx -av "${LOOPDEV}" >/dev/null 2>&1 || true
-        sleep 2
-        MAP_NAME="$(basename "${LOOPDEV}")"
-        [ -b "/dev/mapper/${MAP_NAME}p1" ] && SRC_PART="/dev/mapper/${MAP_NAME}p1"
+    # Calculate exact offset of first partition — works for both GPT and MBR
+    echo -e "${CYAN}Calculating partition offset...${NC}"
+    START_SECTOR=$(fdisk -l "${IMG_PATH}" 2>/dev/null | grep -E "^${IMG_PATH}[p1 ]" | head -n1 | awk '{print $2}')
+    # Some fdisk versions print a boot flag (*) in column 2 — shift to column 3
+    if ! [[ "$START_SECTOR" =~ ^[0-9]+$ ]]; then
+        START_SECTOR=$(fdisk -l "${IMG_PATH}" 2>/dev/null | grep -E "^${IMG_PATH}[p1 ]" | head -n1 | awk '{print $3}')
     fi
+    [ -z "$START_SECTOR" ] && START_SECTOR=2048
+    OFFSET=$(( START_SECTOR * 512 ))
+    echo -e "${CYAN}Partition offset: ${OFFSET} bytes (sector ${START_SECTOR})${NC}"
 
-    # Fallback: losetup -P partition scan
-    if [ -z "$SRC_PART" ]; then
-        losetup -d "${LOOPDEV}" 2>/dev/null || true
-        LOOPDEV="$(losetup --find --show -P "${IMG_PATH}")"
-        sleep 2
-        if   [ -b "${LOOPDEV}p1" ]; then SRC_PART="${LOOPDEV}p1"
-        elif [ -b "${LOOPDEV}1"  ]; then SRC_PART="${LOOPDEV}1"
-        fi
+    # Direct offset mount — no losetup/kpartx, no overlapping issues
+    if ! mount -o loop,offset=${OFFSET} "${IMG_PATH}" "${SOURCE_MNT}"; then
+        echo -e "${RED}Error: Could not mount cloud image.${NC}"; exit 1
     fi
-
-    # Last resort: manual offset mount
-    if [ -z "$SRC_PART" ]; then
-        echo -e "${YELLOW}Trying manual offset mount...${NC}"
-        OFFSET=$(fdisk -l "${IMG_PATH}" 2>/dev/null | awk '/\.img1/{print $2 * 512}' | head -1)
-        [ -z "$OFFSET" ] && OFFSET=1048576
-        mount -o loop,offset=${OFFSET} "${IMG_PATH}" "${SOURCE_MNT}"
-    else
-        mount "${SRC_PART}" "${SOURCE_MNT}"
-    fi
+    LOOPDEV=""
 
     mkdir -p "${SOURCE_MNT}/var/lib/cloud/seed/nocloud"
 
@@ -416,9 +402,9 @@ runcmd:
   - resize2fs /dev/sda1 || true
 EOF
 
-    umount "${SOURCE_MNT}" || true
-    kpartx -dv "${LOOPDEV}" 2>/dev/null || true
-    losetup -d "${LOOPDEV}" || true
+    sync
+    umount "${SOURCE_MNT}" 2>/dev/null || true
+    # LOOPDEV is empty when using offset mount (kernel manages the loop)
 
     # --- dd from RAM to disk ---
     echo -e "${CYAN}Writing image from RAM to ${REAL_DISK}...${NC}"
