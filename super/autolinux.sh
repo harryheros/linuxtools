@@ -92,10 +92,10 @@ if [ "$OS_TYPE" = "debian" ] && [ -z "$RELEASE" ]; then RELEASE="12"; fi
 if [ "$OS_TYPE" = "ubuntu" ] && [ -z "$RELEASE" ]; then RELEASE="24"; fi
 
 clear
-echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
+echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌${NC}"
 echo -e "${GREEN}${BOLD}            AutoLinux Unified Installer v${VERSION}${NC}"
 echo -e "${GREEN}        Copyright (C) 2026 HarryLinux Tools / Harry${NC}"
-echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
+echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌${NC}"
 
 echo -e "\n${BOLD}${CYAN}Step: Pre-installing essential tools...${NC}"
 export DEBIAN_FRONTEND=noninteractive
@@ -424,45 +424,37 @@ EOF
 
 
     # --- dd from RAM to disk ---
+    # --- dd from RAM to disk ---
     echo -e "${CYAN}Writing image from RAM to ${REAL_DISK}...${NC}"
     sync
     dd if="${IMG_PATH}" of="${REAL_DISK}" bs=4M status=progress conv=fsync
-    partprobe "${REAL_DISK}" || true
 
-
-    # Fix GPT backup header — cloud image GPT is sized for the image not the disk.
-    # sgdisk -e relocates the backup header to the actual disk end.
-    echo -e "${CYAN}Fixing GPT backup structures...${NC}"
-    if command -v sgdisk >/dev/null 2>&1; then
-        sgdisk -e "${REAL_DISK}" 2>/dev/null || true
-        partprobe "${REAL_DISK}" || true
+    # --- Fix GPT structure ---
+    echo -e "${CYAN}Fixing GPT structure and partition flags...${NC}"
+    if ! command -v sgdisk >/dev/null 2>&1; then
+        apt-get install -y gdisk 2>/dev/null || yum install -y gdisk 2>/dev/null || true
     fi
-    # --- Register EFI boot entry after dd ---
+    sgdisk -e "${REAL_DISK}" || true          # relocate backup header to disk end
+    sgdisk -t 15:ef00 "${REAL_DISK}" || true  # ensure p15 is flagged as EFI system
+    partprobe "${REAL_DISK}" || true
+    sleep 2
+
+    # --- Register EFI boot entry ---
     if [ -d /sys/firmware/efi ]; then
         echo -e "${CYAN}Registering Ubuntu EFI boot entry...${NC}"
         if ! command -v efibootmgr >/dev/null 2>&1; then
             apt-get install -y efibootmgr 2>/dev/null || true
         fi
-        case "$REAL_DISK" in
-            *nvme*|*mmcblk*) EFI_PART="${REAL_DISK}p15" ;;
-            *)                EFI_PART="${REAL_DISK}15"  ;;
-        esac
-        if [ -b "${EFI_PART}" ]; then
-            mkdir -p /mnt/autolinux_efi
-            mount "${EFI_PART}" /mnt/autolinux_efi 2>/dev/null || true
-            if [ -f /mnt/autolinux_efi/EFI/ubuntu/shimx64.efi ]; then
-                efibootmgr --create                     --disk "${REAL_DISK}"                     --part 15                     --label "Ubuntu"                     --loader "\EFI\ubuntu\shimx64.efi" 2>/dev/null || true
-                echo -e "${GREEN}EFI boot entry registered!${NC}"
-            else
-                echo -e "${YELLOW}shimx64.efi not found. EFI dir contents:${NC}"
-                ls /mnt/autolinux_efi/EFI/ 2>/dev/null || true
-            fi
-            umount /mnt/autolinux_efi 2>/dev/null || true
-        fi
+        efibootmgr -B -L "Ubuntu" 2>/dev/null || true
+        efibootmgr -c -d "${REAL_DISK}" -p 15 -L "Ubuntu" \
+            -l "\\EFI\\ubuntu\\shimx64.efi" || true
+        echo -e "${GREEN}EFI boot entry registered!${NC}"
     fi
 
-    # Cleanup RAM
-    umount "${RAM_DIR}" 2>/dev/null || true
+    # --- Cleanup RAM ---
+    sync
+    cd / && umount "${RAM_DIR}" 2>/dev/null || true
+
 
     UBUNTU_CLOUD=1
     GRUB_TITLE=""
@@ -525,7 +517,7 @@ fi
 # ==============================================================================
 # SUMMARY & REBOOT
 # ==============================================================================
-echo -e "\n${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
+echo -e "\n${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌${NC}"
 echo -e "${GREEN}[✔] Ready! (v${VERSION})${NC}  Target: ${CYAN}${DISPLAY_NAME}${NC}"
 echo -e "    Disk     : ${YELLOW}${REAL_DISK}${NC}"
 echo -e "    IP       : ${YELLOW}${V_IP}${NC}"
@@ -543,7 +535,7 @@ if [ "$DEFAULT_PASSWORD_USED" -eq 1 ]; then
     echo -e "\n${YELLOW}Default root password is set. Please change it after first login.${NC}"
 fi
 
-echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
+echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌${NC}"
 
 echo -ne "\nRebooting in "
 for i in {10..1}; do echo -n "$i... "; sleep 1; done
