@@ -519,6 +519,10 @@ echo -ne "\nRebooting in "
 for i in {10..1}; do echo -n "$i... "; sleep 1; done
 echo -e "\n${RED}${BOLD}Rebooting now!${NC}"
 sync && sleep 2
+# Gracefully close SSH connections before killing the system
+# This lets the SSH client disconnect cleanly instead of timing out
+pkill -TERM sshd 2>/dev/null || true
+sleep 1
 # Enable SysRq
 echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
 # Trigger reboot via correct path
