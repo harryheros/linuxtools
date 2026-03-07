@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Project: AutoLinux - Unified Linux Auto-Installer
-# Version: 2.1.0
+# Version: 2.0.0
 # Description: High-performance, BIOS + UEFI compatible automated network
 #              installer for Debian and Ubuntu systems.
 #
 # Author: Harry / HarryLinux Tools
-# Upgraded by ChatGPT based on user debugging requirements
+# GitHub: https://github.com/harryheros/LinuxTools
+# Copyright (C) 2026 HarryLinux Tools.
 #
 # License: GNU General Public License v3.0 (GPL-3.0)
 # ==============================================================================
