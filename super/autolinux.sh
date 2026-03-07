@@ -346,6 +346,8 @@ hostname: ubuntu
 manage_etc_hosts: true
 disable_root: false
 ssh_pwauth: true
+network:
+  config: disabled
 chpasswd:
   list: |
     root:${ROOT_PASS}
@@ -356,6 +358,7 @@ write_files:
     content: |
       network:
         version: 2
+        renderer: networkd
         ethernets:
           ${INTERFACE}:
             dhcp4: false
@@ -379,6 +382,8 @@ write_files:
       network: {config: disabled}
 runcmd:
   - rm -f /etc/netplan/50-cloud-init.yaml
+  - rm -f /etc/netplan/01-netcfg.yaml
+  - netplan generate
   - netplan apply || true
   - systemctl restart ssh || systemctl restart sshd || true
   - growpart /dev/sda 1 || true
