@@ -518,4 +518,7 @@ echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌�
 echo -ne "\nRebooting in "
 for i in {10..1}; do echo -n "$i... "; sleep 1; done
 echo -e "\n${RED}${BOLD}Rebooting now!${NC}"
-sync && reboot -f
+sync
+echo 1 > /proc/sys/kernel/sysrq
+echo b > /proc/sys/kernel/sysrq
+reboot -f -n
