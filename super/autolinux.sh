@@ -458,24 +458,44 @@ fi
 # ==============================================================================
 echo -e "\n${BOLD}${CYAN}Step: Patching GRUB bootloader...${NC}"
 
+# --- Detect UEFI or BIOS ---
+if [ -d /sys/firmware/efi ]; then
+    IS_UEFI=1
+    echo -e "${CYAN}Boot mode detected: UEFI${NC}"
+else
+    IS_UEFI=0
+    echo -e "${CYAN}Boot mode detected: BIOS (Legacy)${NC}"
+fi
+
 BOOT_UUID=$(/usr/sbin/grub-probe --target=fs_uuid /boot 2>/dev/null || grub-probe --target=fs_uuid /boot)
+
+# UEFI: use linuxefi/initrdefi to bypass Secure Boot shim signature issue
+# BIOS: use linux/initrd as normal
+if [ "$IS_UEFI" -eq 1 ]; then
+    LINUX_CMD="linuxefi"
+    INITRD_CMD="initrdefi"
+else
+    LINUX_CMD="linux"
+    INITRD_CMD="initrd"
+fi
 
 cat > /etc/grub.d/40_custom <<EOF
 #!/bin/sh
 exec tail -n +3 \$0
 menuentry '${GRUB_TITLE}' {
     load_video
+    insmod all_video
     insmod gzio
     insmod part_gpt
     insmod part_msdos
     insmod ext2
     search --no-floppy --fs-uuid --set=root ${BOOT_UUID}
     if [ -f ${KERNEL_PATH} ]; then
-        linux ${KERNEL_PATH} ${KERNEL_APPEND}
-        initrd ${INITRD_PATH}
+        ${LINUX_CMD} ${KERNEL_PATH} ${KERNEL_APPEND}
+        ${INITRD_CMD} ${INITRD_PATH}
     else
-        linux ${KERNEL_PATH##/boot} ${KERNEL_APPEND}
-        initrd ${INITRD_PATH##/boot}
+        ${LINUX_CMD} ${KERNEL_PATH##/boot} ${KERNEL_APPEND}
+        ${INITRD_CMD} ${INITRD_PATH##/boot}
     fi
 }
 EOF
