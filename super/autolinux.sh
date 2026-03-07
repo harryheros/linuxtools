@@ -352,6 +352,25 @@ chpasswd:
   list: |
     root:${ROOT_PASS}
   expire: false
+bootcmd:
+  - mkdir -p /etc/netplan
+  - |
+    cat > /etc/netplan/99-autolinux.yaml <<NETPLAN
+    network:
+      version: 2
+      renderer: networkd
+      ethernets:
+        ${INTERFACE}:
+          dhcp4: false
+          addresses: [${V_IP}/${V_PREFIX}]
+          routes:
+            - to: default
+              via: ${V_GATEWAY}
+          nameservers:
+            addresses: [8.8.8.8, 1.1.1.1]
+    NETPLAN
+  - rm -f /etc/netplan/50-cloud-init.yaml
+  - netplan apply || true
 write_files:
   - path: /etc/netplan/99-autolinux.yaml
     permissions: '0600'
@@ -400,44 +419,6 @@ EOF
         debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${IMG_ROOT}"
         debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${IMG_ROOT}"
         sync
-
-        # Mount root partition directly to write netplan config
-        # More reliable than debugfs for file content with variables
-        ROOT_MNT="/tmp/img_root_mnt"
-        mkdir -p "${ROOT_MNT}"
-        if mount "${IMG_ROOT}" "${ROOT_MNT}" 2>/dev/null; then
-            mkdir -p "${ROOT_MNT}/etc/netplan"
-            mkdir -p "${ROOT_MNT}/etc/cloud/cloud.cfg.d"
-
-            # Write static netplan — overwrite 50-cloud-init.yaml so DHCP never runs
-            cat > "${ROOT_MNT}/etc/netplan/50-cloud-init.yaml" <<NETPLAN
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    ${INTERFACE}:
-      dhcp4: false
-      addresses: [${V_IP}/${V_PREFIX}]
-      routes:
-        - to: default
-          via: ${V_GATEWAY}
-      nameservers:
-        addresses: [8.8.8.8, 1.1.1.1]
-NETPLAN
-            cp "${ROOT_MNT}/etc/netplan/50-cloud-init.yaml" \
-               "${ROOT_MNT}/etc/netplan/99-autolinux.yaml"
-
-            # Disable cloud-init network management permanently
-            echo "network: {config: disabled}" > \
-                "${ROOT_MNT}/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"
-
-            sync
-            umount "${ROOT_MNT}"
-            echo -e "${GREEN}Netplan static IP written directly into image!${NC}"
-        else
-            echo -e "${YELLOW}Warning: Could not mount root partition for netplan injection.${NC}"
-        fi
-
         echo -e "${GREEN}cloud-init injection complete!${NC}"
     else
         echo -e "${YELLOW}Warning: Could not find root partition, skipping cloud-init injection.${NC}"
