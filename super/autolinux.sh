@@ -216,7 +216,7 @@ rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
 
 # ==============================================================================
 # DEBIAN INSTALLATION PATH
-# Netboot preseed — identical to surpasser.sh 1.3.8
+# Netboot preseed
 # ==============================================================================
 install_debian() {
     echo -e "\n${BOLD}${CYAN}Step: Fetching Debian network installer...${NC}"
@@ -299,7 +299,7 @@ EOF
 
 # ==============================================================================
 # UBUNTU INSTALLATION PATH
-# Download to RAM → inject cloud-init → dd to disk → reboot
+# Improved Cloud-init Seeding for Static IP
 # ==============================================================================
 install_ubuntu() {
     echo -e "\n${BOLD}${CYAN}Step: Installing Ubuntu via QCOW2 Cloud Image...${NC}"
@@ -309,12 +309,10 @@ install_ubuntu() {
         *)  IMG_URL="https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img" ;;
     esac
 
-    # Use /var/tmp (disk-backed) — avoids RAM pressure on low-memory VPS
     IMG_PATH="/var/tmp/ubuntu-cloud.img"
     echo -e "${CYAN}Downloading Ubuntu cloud image (~600MB)...${NC}"
     wget --continue --show-progress -O "${IMG_PATH}" "${IMG_URL}"
 
-    # --- Mount QCOW2 via qemu-nbd ---
     echo -e "${CYAN}Mounting QCOW2 image via NBD...${NC}"
     modprobe nbd max_part=16
     sleep 1
@@ -322,16 +320,9 @@ install_ubuntu() {
     qemu-nbd --connect=/dev/nbd0 "${IMG_PATH}"
     sleep 2
 
-    echo -e "${CYAN}Partitions in image:${NC}"
-    lsblk /dev/nbd0 || true
-
-    # Find root (largest ext4) and EFI (vfat) partitions
     IMG_ROOT=$(lsblk -lnp -o NAME,FSTYPE,SIZE /dev/nbd0 2>/dev/null | grep "ext4" | sort -hk3 | tail -n1 | awk '{print $1}')
     IMG_EFI=$(lsblk -lnp -o NAME,FSTYPE /dev/nbd0 2>/dev/null | grep "vfat" | head -n1 | awk '{print $1}')
-    echo -e "${CYAN}Root: ${IMG_ROOT}${NC}"
-    echo -e "${CYAN}EFI : ${IMG_EFI}${NC}"
 
-    # --- Inject cloud-init into root partition ---
     TEMP_CFG="/tmp/autolinux_cfg"
     mkdir -p "${TEMP_CFG}"
 
@@ -346,6 +337,8 @@ hostname: ubuntu
 manage_etc_hosts: true
 disable_root: false
 ssh_pwauth: true
+network:
+  config: disabled
 chpasswd:
   list: |
     root:${ROOT_PASS}
@@ -369,37 +362,40 @@ EOF
     cat > "${TEMP_CFG}/network-config" <<EOF
 version: 2
 ethernets:
-  ${INTERFACE}:
-    dhcp4: false
-    dhcp6: false
+  all-eth:
+    match:
+      name: "e*"
+    set-name: eth0
     addresses:
       - ${V_IP}/${V_PREFIX}
-    routes:
-      - to: default
-        via: ${V_GATEWAY}
+    gateway4: ${V_GATEWAY}
     nameservers:
-      addresses:
-        - 8.8.8.8
-        - 1.1.1.1
+      addresses: [8.8.8.8, 1.1.1.1]
 EOF
 
     if [ -n "$IMG_ROOT" ] && [ -b "$IMG_ROOT" ]; then
-        echo -e "${CYAN}Injecting cloud-init into ${IMG_ROOT}...${NC}"
-        debugfs -w -R "mkdir /var"                        "${IMG_ROOT}" 2>/dev/null || true
-        debugfs -w -R "mkdir /var/lib"                    "${IMG_ROOT}" 2>/dev/null || true
-        debugfs -w -R "mkdir /var/lib/cloud"              "${IMG_ROOT}" 2>/dev/null || true
-        debugfs -w -R "mkdir /var/lib/cloud/seed"         "${IMG_ROOT}" 2>/dev/null || true
+        echo -e "${CYAN}Injecting Cloud-init seed and network config...${NC}"
+        debugfs -w -R "mkdir /var" "${IMG_ROOT}" 2>/dev/null || true
+        debugfs -w -R "mkdir /var/lib" "${IMG_ROOT}" 2>/dev/null || true
+        debugfs -w -R "mkdir /var/lib/cloud" "${IMG_ROOT}" 2>/dev/null || true
+        debugfs -w -R "mkdir /var/lib/cloud/seed" "${IMG_ROOT}" 2>/dev/null || true
         debugfs -w -R "mkdir /var/lib/cloud/seed/nocloud" "${IMG_ROOT}" 2>/dev/null || true
         debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${IMG_ROOT}"
         debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${IMG_ROOT}"
         debugfs -w -R "write ${TEMP_CFG}/network-config /var/lib/cloud/seed/nocloud/network-config" "${IMG_ROOT}"
-        sync
-        echo -e "${GREEN}cloud-init injection complete!${NC}"
-    else
-        echo -e "${YELLOW}Warning: Could not find root partition, skipping injection.${NC}"
+        
+        ROOT_MNT="/tmp/img_root_mnt"
+        mkdir -p "${ROOT_MNT}"
+        if mount -t ext4 "${IMG_ROOT}" "${ROOT_MNT}" 2>/dev/null; then
+            echo -e "${CYAN}Cleaning legacy netplan and locking config...${NC}"
+            rm -f "${ROOT_MNT}/etc/netplan/"*.yaml
+            mkdir -p "${ROOT_MNT}/etc/cloud/cloud.cfg.d"
+            echo "network: {config: disabled}" > "${ROOT_MNT}/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"
+            sync
+            umount "${ROOT_MNT}"
+        fi
     fi
 
-    # --- Fix EFI fallback path ---
     if [ -n "$IMG_EFI" ] && [ -b "$IMG_EFI" ]; then
         echo -e "${CYAN}Fixing EFI fallback path in image...${NC}"
         EFI_MNT="/tmp/efi_fix_mnt"
@@ -409,27 +405,18 @@ EOF
             if [ -f "${EFI_MNT}/EFI/ubuntu/shimx64.efi" ]; then
                 cp "${EFI_MNT}/EFI/ubuntu/shimx64.efi" "${EFI_MNT}/EFI/BOOT/BOOTX64.EFI"
                 cp "${EFI_MNT}/EFI/ubuntu/grubx64.efi"  "${EFI_MNT}/EFI/BOOT/grubx64.efi" 2>/dev/null || true
-                echo -e "${GREEN}EFI/BOOT/BOOTX64.EFI written!${NC}"
-            else
-                echo -e "${YELLOW}shimx64.efi not found. EFI contents:${NC}"
-                find "${EFI_MNT}" -type f 2>/dev/null || true
             fi
             sync
             umount "${EFI_MNT}"
         fi
     fi
 
-    # --- Disconnect NBD BEFORE convert (after convert /tmp is gone) ---
     qemu-nbd --disconnect /dev/nbd0
     sleep 1
 
     echo -e "${CYAN}Writing QCOW2 image directly to ${REAL_DISK}...${NC}"
-    # qemu-img convert writes the expanded raw image directly to disk
-    # No intermediate file needed — saves disk space
     qemu-img convert -f qcow2 -O raw -p "${IMG_PATH}" "${REAL_DISK}"
-    # Note: /tmp is gone after convert overwrites /dev/sda, no cleanup needed
 
-    # Fix GPT backup header (image ~3.5GB, disk may be larger)
     echo -e "${CYAN}Fixing GPT backup header...${NC}"
     sgdisk -e "${REAL_DISK}" 2>/dev/null || true
     partx -u "${REAL_DISK}" 2>/dev/null || true
@@ -490,7 +477,7 @@ EOF
         grub2-mkconfig -o "$GRUB_CFG_PATH"
     fi
 else
-    echo -e "\n${GREEN}Ubuntu bootloader already handled in chroot — skipping host GRUB update.${NC}"
+    echo -e "\n${GREEN}Ubuntu bootloader already handled in image — skipping host GRUB update.${NC}"
 fi
 
 # ==============================================================================
@@ -503,7 +490,7 @@ echo -e "    IP       : ${YELLOW}${V_IP}${NC}"
 echo -e "    SSH Port : ${YELLOW}${SSH_PORT}${NC}"
 echo -e "    Password : ${YELLOW}${ROOT_PASS}${NC}"
 
-echo -e "${RED}${BOLD}ATTENTION: Installation takes 5-30 minutes depending on network speed.${NC}"
+echo -e "\n${RED}${BOLD}ATTENTION: Installation takes 5-30 minutes depending on network speed.${NC}"
 echo -e "${RED}${BOLD}The system will reboot automatically when finished.${NC}"
 
 if [ "$DEFAULT_PASSWORD_USED" -eq 1 ]; then
@@ -516,15 +503,10 @@ echo -ne "\nRebooting in "
 for i in {10..1}; do echo -n "$i... "; sleep 1; done
 echo -e "\n${RED}${BOLD}Rebooting now!${NC}"
 sync && sleep 2
-# Gracefully close SSH connections before killing the system
-# This lets the SSH client disconnect cleanly instead of timing out
 pkill -TERM sshd 2>/dev/null || true
 sleep 1
-# Enable SysRq
 echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
-# Trigger reboot via correct path
 echo b > /proc/sysrq-trigger 2>/dev/null || true
-# Fallbacks
 reboot -f -n 2>/dev/null || true
 systemctl reboot --force --force 2>/dev/null || true
 python3 -c "import ctypes; ctypes.CDLL('libc.so.6').reboot(0x1234567)" 2>/dev/null || true
