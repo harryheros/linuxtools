@@ -346,8 +346,6 @@ hostname: ubuntu
 manage_etc_hosts: true
 disable_root: false
 ssh_pwauth: true
-network:
-  config: disabled
 chpasswd:
   list: |
     root:${ROOT_PASS}
@@ -362,9 +360,6 @@ write_files:
     content: |
       net.core.default_qdisc=fq
       net.ipv4.tcp_congestion_control=bbr
-  - path: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
-    content: |
-      network: {config: disabled}
 runcmd:
   - systemctl restart ssh || systemctl restart sshd || true
   - growpart /dev/sda 1 || true
