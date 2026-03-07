@@ -413,12 +413,11 @@ EOF
     umount "${WORKDIR}/iso_mount" 2>/dev/null || true
 
     # --- Build config layer and concatenate with original initrd ---
-    # Linux kernel supports concatenated initrd segments.
-    # We append a small cpio containing only autoinstall config on top of
-    # the original Ubuntu initrd — no need to unpack/repack the full initrd.
-    mkdir -p "${WORKDIR}/initrd_inject/autoinstall"
-    cp "${WORKDIR}/user-data" "${WORKDIR}/initrd_inject/autoinstall/user-data"
-    cp "${WORKDIR}/meta-data" "${WORKDIR}/initrd_inject/autoinstall/meta-data"
+    # Place user-data and meta-data at initrd ROOT (not subdirectory).
+    # ds=nocloud-net;s=file:/// reads directly from initrd root.
+    mkdir -p "${WORKDIR}/initrd_inject"
+    cp "${WORKDIR}/user-data" "${WORKDIR}/initrd_inject/user-data"
+    cp "${WORKDIR}/meta-data" "${WORKDIR}/initrd_inject/meta-data"
 
     cd "${WORKDIR}/initrd_inject"
     find . | cpio -H newc -o | gzip -9 > "${WORKDIR}/config_layer.gz"
@@ -429,7 +428,10 @@ EOF
 
     KERNEL_PATH="/boot/vmlinuz-ubuntu${RELEASE}-autolinux"
     INITRD_PATH="/boot/initrd-ubuntu${RELEASE}-autolinux.gz"
-    KERNEL_APPEND="autoinstall ds=nocloud;s=/autoinstall/ ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}:ubuntu::off:8.8.8.8 cloud-config-url=/dev/null quiet ---"
+    # ds=nocloud-net;s=file:/// reads user-data from initrd root
+    # builtin_cdrom=0 prevents /dev/sr0 scanning error
+    # cloud-config-url=/dev/null prevents network config fetch
+    KERNEL_APPEND="autoinstall ds=nocloud-net;s=file:/// ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}:ubuntu::off:8.8.8.8 builtin_cdrom=0 cloud-config-url=/dev/null quiet ---"
     GRUB_TITLE="AutoLinux-Ubuntu${RELEASE}"
 }
 
