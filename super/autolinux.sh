@@ -27,8 +27,10 @@ OS_TYPE="debian"
 RELEASE=""
 SSH_PORT="22"
 ROOT_PASS="Harry888"
-VERSION="2.1.0"
+VERSION="2.0.0"
 DEFAULT_PASSWORD_USED=1
+
+# DNS
 DNS1="1.1.1.1"
 DNS2="1.0.0.1"
 
@@ -169,30 +171,19 @@ fi
 
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update -y
-    apt-get install -y \
-        util-linux wget ca-certificates kexec-tools tar gzip cpio \
-        grub2-common python3 python3-yaml openssl
-
+    apt-get install -y util-linux wget ca-certificates kexec-tools tar gzip cpio grub2-common python3 python3-yaml openssl
 elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y \
-        util-linux wget ca-certificates kexec-tools tar gzip cpio \
-        grub2 grub2-tools python3 python3-pyyaml openssl
+    dnf install -y util-linux wget ca-certificates kexec-tools tar gzip cpio grub2 grub2-tools python3 python3-pyyaml openssl
     [ ! -f /usr/sbin/grub-probe ] && [ -f /usr/sbin/grub2-probe ] && ln -sf /usr/sbin/grub2-probe /usr/sbin/grub-probe
-
 elif command -v yum >/dev/null 2>&1; then
     if [ "$IS_CENTOS7" -eq 1 ]; then
-        yum --disablerepo="*" --enablerepo="autolinux-vault-*" install -y \
-            util-linux wget ca-certificates kexec-tools tar gzip cpio \
-            grub2 grub2-tools python3 openssl
+        yum --disablerepo="*" --enablerepo="autolinux-vault-*" install -y util-linux wget ca-certificates kexec-tools tar gzip cpio grub2 grub2-tools python3 openssl
     else
-        yum install -y \
-            util-linux wget ca-certificates kexec-tools tar gzip cpio \
-            grub2 grub2-tools python3 openssl
+        yum install -y util-linux wget ca-certificates kexec-tools tar gzip cpio grub2 grub2-tools python3 openssl
     fi
     [ ! -f /usr/sbin/grub-probe ] && [ -f /usr/sbin/grub2-probe ] && ln -sf /usr/sbin/grub2-probe /usr/sbin/grub-probe
-
 else
-    echo -e "${RED}Error: Package manager not found. Please install required tools manually.${NC}"
+    echo -e "${RED}Error: Package manager not found. Please install wget manually.${NC}"
     exit 1
 fi
 
@@ -219,66 +210,51 @@ if [ -z "$REAL_DISK" ]; then
 fi
 
 # --- Network Detection ---
-INTERFACE=$(ip route | awk '/default/ {print $5; exit}')
-if [ -z "${INTERFACE:-}" ]; then
-    echo -e "${RED}Error: Could not detect default network interface.${NC}"
-    exit 1
-fi
-
-V_IP=$(ip -4 addr show "$INTERFACE" | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
-V_GATEWAY=$(ip route | awk '/default/ {print $3; exit}')
-V_PREFIX=$(ip -4 addr show "$INTERFACE" | awk '/inet / {print $2}' | cut -d/ -f2 | head -n1)
-
-if [ -z "${V_IP:-}" ] || [ -z "${V_GATEWAY:-}" ] || [ -z "${V_PREFIX:-}" ]; then
-    echo -e "${RED}Error: Failed to detect IPv4 network configuration.${NC}"
-    exit 1
-fi
+INTERFACE="$(ip route | awk '/default/ {print $5; exit}')"
+V_IP="$(ip -4 addr show "$INTERFACE" | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)"
+V_GATEWAY="$(ip route | awk '/default/ {print $3; exit}')"
+V_PREFIX="$(ip -4 addr show "$INTERFACE" | awk '/inet / {print $2}' | cut -d/ -f2 | head -n1)"
 
 prefix_to_mask() {
     local prefix="$1"
-    local mask=""
     local full_octets=$((prefix / 8))
     local partial_octet=$((prefix % 8))
+    local mask=""
     local i
-
     for ((i=0; i<4; i++)); do
-        if [ "$i" -lt "$full_octets" ]; then
+        if [ $i -lt $full_octets ]; then
             mask+="255"
-        elif [ "$i" -eq "$full_octets" ] && [ "$partial_octet" -ne 0 ]; then
+        elif [ $i -eq $full_octets ] && [ $partial_octet -ne 0 ]; then
             mask+=$((256 - 2**(8-partial_octet)))
         else
             mask+="0"
         fi
-        [ "$i" -lt 3 ] && mask+="."
+        [ $i -lt 3 ] && mask+="."
     done
     echo "$mask"
 }
-V_NETMASK=$(prefix_to_mask "$V_PREFIX")
+V_NETMASK="$(prefix_to_mask "$V_PREFIX")"
 
 # --- Resolve release name ---
 if [ "$OS_TYPE" = "debian" ]; then
     case "$RELEASE" in
         "11") REL_NAME="bullseye" ;;
         "12") REL_NAME="bookworm" ;;
-        "13") REL_NAME="trixie" ;;
-        *)    echo -e "${RED}Unsupported Debian version.${NC}"; exit 1 ;;
+        *)    REL_NAME="trixie" ;;
     esac
     DISPLAY_NAME="Debian ${RELEASE} (${REL_NAME})"
 else
     case "$RELEASE" in
         "22") REL_NAME="jammy"; FULL_VER="22.04" ;;
-        "24") REL_NAME="noble"; FULL_VER="24.04" ;;
-        *)    echo -e "${RED}Unsupported Ubuntu version.${NC}"; exit 1 ;;
+        *)    REL_NAME="noble"; FULL_VER="24.04" ;;
     esac
     DISPLAY_NAME="Ubuntu ${FULL_VER} (${REL_NAME})"
 fi
 
 echo -e "      Target OS : ${YELLOW}${DISPLAY_NAME}${NC}"
 echo -e "      Root Disk : ${YELLOW}${REAL_DISK}${NC}"
-echo -e "      Interface : ${YELLOW}${INTERFACE}${NC}"
 echo -e "      IP Config : ${YELLOW}${V_IP} / ${V_NETMASK}${NC}"
 echo -e "      Gateway   : ${YELLOW}${V_GATEWAY}${NC}"
-echo -e "      DNS       : ${YELLOW}${DNS1}, ${DNS2}${NC}"
 echo -e "      SSH Port  : ${YELLOW}${SSH_PORT}${NC}"
 
 # --- Working directory ---
@@ -286,15 +262,12 @@ WORKDIR="/var/tmp/autolinux"
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
 
-# Globals used later by GRUB generation
+# --- Shared globals for GRUB ---
 KERNEL_PATH=""
 INITRD_PATH=""
 KERNEL_APPEND=""
 GRUB_TITLE=""
-ISO_BOOT_PATH=""
 SEED_BOOT_PATH=""
-UBUNTU_CASPER_VMLINUZ=""
-UBUNTU_CASPER_INITRD=""
 UBUNTU_MODE=0
 
 # ==============================================================================
@@ -310,31 +283,24 @@ install_debian() {
 #!/bin/sh
 set -e
 
-if grep -qE '^[# ]*PermitRootLogin' /etc/ssh/sshd_config; then
-    sed -i 's/^[# ]*PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config
-else
-    echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config
-fi
+sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config || true
+grep -q '^PermitRootLogin yes' /etc/ssh/sshd_config || echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config
 
-if grep -qE '^[# ]*Port ' /etc/ssh/sshd_config; then
-    sed -i 's/^[# ]*Port .*/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
-else
-    echo 'Port ${SSH_PORT}' >> /etc/ssh/sshd_config
-fi
+sed -i 's/#Port 22/Port ${SSH_PORT}/g' /etc/ssh/sshd_config || true
+sed -i 's/^Port .*/Port ${SSH_PORT}/g' /etc/ssh/sshd_config || true
+grep -q '^Port ${SSH_PORT}$' /etc/ssh/sshd_config || echo 'Port ${SSH_PORT}' >> /etc/ssh/sshd_config
 
 echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
 echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
 
 printf 'auto lo\niface lo inet loopback\n\n' > /etc/network/interfaces
-for iface in \$(ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$'); do
+for iface in \$(ip -o link show | awk -F': ' '{print \$2}' | grep -v lo); do
     printf "auto \$iface\nallow-hotplug \$iface\niface \$iface inet static\n"
     printf "    address ${V_IP}\n"
     printf "    netmask ${V_NETMASK}\n"
     printf "    gateway ${V_GATEWAY}\n"
     printf "    dns-nameservers ${DNS1} ${DNS2}\n\n"
 done >> /etc/network/interfaces
-
-sysctl -p || true
 POSTINSTALL
     chmod +x "${WORKDIR}/post-install.sh"
 
@@ -379,14 +345,13 @@ EOF
 
     cd "$WORKDIR"
     tar -xzf netboot.tar.gz
-
     mkdir -p initrd_work
     cd initrd_work
     gzip -dc "../debian-installer/amd64/initrd.gz" | cpio -idmu >/dev/null 2>&1
     cp "${WORKDIR}/preseed.cfg" ./preseed.cfg
     cp "${WORKDIR}/post-install.sh" ./post-install.sh
 
-    rm -f /boot/vmlinuz-*autolinux /boot/initrd-*autolinux.gz 2>/dev/null || true
+    rm -f /boot/vmlinuz-*autolinux /boot/initrd-*autolinux /boot/initrd-*autolinux.gz 2>/dev/null || true
     find . | cpio -H newc -o 2>/dev/null | gzip -1 > /boot/initrd-debian${RELEASE}-autolinux.gz
     cp "${WORKDIR}/debian-installer/amd64/linux" /boot/vmlinuz-debian${RELEASE}-autolinux
 
@@ -397,26 +362,33 @@ EOF
 }
 
 # ==============================================================================
-# UBUNTU INSTALLATION PATH (ISO loopback + original casper initrd + seed overlay)
+# UBUNTU INSTALLATION PATH (netboot + autoinstall seed)
 # ==============================================================================
 install_ubuntu() {
     UBUNTU_MODE=1
-    echo -e "\n${BOLD}${CYAN}Step: Fetching Ubuntu installer ISO...${NC}"
+    echo -e "\n${BOLD}${CYAN}Step: Fetching Ubuntu network installer...${NC}"
 
-    # Correct Ubuntu release directory
     MIRROR="https://releases.ubuntu.com/${FULL_VER}/"
 
-    echo -e "${CYAN}Resolving latest Ubuntu ${FULL_VER} ISO filename...${NC}"
-    ISO_FILE="$(wget -qO- "${MIRROR}SHA256SUMS" | awk '/live-server-amd64\.iso$/ {print $2}' | sed 's/*//g' | grep -E "^ubuntu-${FULL_VER}(\.[0-9]+)?-live-server-amd64\.iso$" | tail -n1 || true)"
+    echo -e "${CYAN}Resolving latest Ubuntu ${FULL_VER} netboot package...${NC}"
+    NETBOOT_FILE="$(wget -qO- "${MIRROR}" | grep -oE "ubuntu-${FULL_VER}(\.[0-9]+)?-netboot-amd64\.tar\.gz" | tail -n1 || true)"
 
-    if [ -z "$ISO_FILE" ]; then
-        ISO_FILE="ubuntu-${FULL_VER}-live-server-amd64.iso"
+    if [ -z "$NETBOOT_FILE" ]; then
+        echo -e "${RED}Error: Could not resolve Ubuntu ${FULL_VER} netboot package.${NC}"
+        echo -e "${YELLOW}Please check: ${MIRROR}${NC}"
+        exit 1
     fi
 
-    echo -e "${CYAN}Selected ISO: ${ISO_FILE}${NC}"
-    wget -O "${WORKDIR}/${ISO_FILE}" "${MIRROR}${ISO_FILE}"
+    echo -e "${CYAN}Latest netboot package: ${NETBOOT_FILE}${NC}"
+    wget -O "${WORKDIR}/${NETBOOT_FILE}" "${MIRROR}${NETBOOT_FILE}"
 
-    echo -e "${CYAN}Preparing Ubuntu autoinstall seed...${NC}"
+    mkdir -p "${WORKDIR}/ubuntu-netboot"
+    tar -xzf "${WORKDIR}/${NETBOOT_FILE}" -C "${WORKDIR}/ubuntu-netboot"
+
+    if [ ! -f "${WORKDIR}/ubuntu-netboot/amd64/linux" ] || [ ! -f "${WORKDIR}/ubuntu-netboot/amd64/initrd" ]; then
+        echo -e "${RED}Error: Unexpected Ubuntu netboot package structure.${NC}"
+        exit 1
+    fi
 
     HASHED_PASS="$(openssl passwd -6 "${ROOT_PASS}")"
 
@@ -463,52 +435,25 @@ EOF
 
     : > "${WORKDIR}/meta-data"
 
-    echo -e "${CYAN}Inspecting ISO contents...${NC}"
-    mkdir -p "${WORKDIR}/iso_mount"
-    mount -o loop,ro "${WORKDIR}/${ISO_FILE}" "${WORKDIR}/iso_mount"
-
-    if [ -f "${WORKDIR}/iso_mount/casper/vmlinuz" ]; then
-        UBUNTU_CASPER_VMLINUZ="/casper/vmlinuz"
-    elif [ -f "${WORKDIR}/iso_mount/casper/hwe-vmlinuz" ]; then
-        UBUNTU_CASPER_VMLINUZ="/casper/hwe-vmlinuz"
-    else
-        umount "${WORKDIR}/iso_mount" 2>/dev/null || true
-        echo -e "${RED}Error: Could not find Ubuntu casper kernel in ISO.${NC}"
-        exit 1
-    fi
-
-    if [ -f "${WORKDIR}/iso_mount/casper/initrd" ]; then
-        UBUNTU_CASPER_INITRD="/casper/initrd"
-    elif [ -f "${WORKDIR}/iso_mount/casper/hwe-initrd" ]; then
-        UBUNTU_CASPER_INITRD="/casper/hwe-initrd"
-    else
-        umount "${WORKDIR}/iso_mount" 2>/dev/null || true
-        echo -e "${RED}Error: Could not find Ubuntu casper initrd in ISO.${NC}"
-        exit 1
-    fi
-
-    umount "${WORKDIR}/iso_mount" 2>/dev/null || true
-
-    echo -e "${CYAN}Creating NoCloud overlay archive...${NC}"
+    echo -e "${CYAN}Creating NoCloud seed archive...${NC}"
+    rm -rf "${WORKDIR}/seed_overlay"
     mkdir -p "${WORKDIR}/seed_overlay/autoinstall"
     cp "${WORKDIR}/user-data" "${WORKDIR}/seed_overlay/autoinstall/user-data"
     cp "${WORKDIR}/meta-data" "${WORKDIR}/seed_overlay/autoinstall/meta-data"
 
     (
         cd "${WORKDIR}/seed_overlay"
-        find . | cpio -H newc -o 2>/dev/null | gzip -1 > /boot/autoinstall-ubuntu${RELEASE}-seed-autolinux.cpio.gz
+        find . | cpio -H newc -o 2>/dev/null | gzip -1 > "/boot/autoinstall-ubuntu${RELEASE}-seed-autolinux.cpio.gz"
     )
 
-    cp "${WORKDIR}/${ISO_FILE}" "/boot/${ISO_FILE}"
+    echo -e "${CYAN}Installing Ubuntu netboot kernel and initrd...${NC}"
+    cp "${WORKDIR}/ubuntu-netboot/amd64/linux" "/boot/vmlinuz-ubuntu${RELEASE}-autolinux"
+    cp "${WORKDIR}/ubuntu-netboot/amd64/initrd" "/boot/initrd-ubuntu${RELEASE}-autolinux"
 
-    ISO_BOOT_PATH="/boot/${ISO_FILE}"
+    KERNEL_PATH="/boot/vmlinuz-ubuntu${RELEASE}-autolinux"
+    INITRD_PATH="/boot/initrd-ubuntu${RELEASE}-autolinux"
     SEED_BOOT_PATH="/boot/autoinstall-ubuntu${RELEASE}-seed-autolinux.cpio.gz"
-
-    # Kept for summary compatibility
-    KERNEL_PATH="${ISO_BOOT_PATH}:${UBUNTU_CASPER_VMLINUZ}"
-    INITRD_PATH="${ISO_BOOT_PATH}:${UBUNTU_CASPER_INITRD} + ${SEED_BOOT_PATH}"
-
-    KERNEL_APPEND="boot=casper ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}:ubuntu:${INTERFACE}:none:${DNS1}:${DNS2} autoinstall ds=nocloud\\;s=/autoinstall/ cloud-config-url=/dev/null noprompt noshell quiet splash ---"
+    KERNEL_APPEND="ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}:ubuntu:${INTERFACE}:none:${DNS1}:${DNS2} autoinstall ds=nocloud\\;s=/autoinstall/ cloud-config-url=/dev/null quiet ---"
     GRUB_TITLE="AutoLinux-Ubuntu${RELEASE}"
 }
 
@@ -520,7 +465,7 @@ else
 fi
 
 # ==============================================================================
-# GRUB CONFIGURATION (shared)
+# GRUB CONFIGURATION (shared for both)
 # ==============================================================================
 echo -e "\n${BOLD}${CYAN}Step: Patching GRUB bootloader...${NC}"
 
@@ -537,30 +482,21 @@ menuentry '${GRUB_TITLE}' {
     insmod part_gpt
     insmod part_msdos
     insmod ext2
-    insmod iso9660
-    insmod loopback
     search --no-floppy --fs-uuid --set=root ${BOOT_UUID}
-
-    if [ -f ${ISO_BOOT_PATH} ]; then
-        set isopath=${ISO_BOOT_PATH}
+    if [ -f ${KERNEL_PATH} ]; then
+        set kpath=${KERNEL_PATH}
+        set ipath=${INITRD_PATH}
+        set spath=${SEED_BOOT_PATH}
     else
-        set isopath=${ISO_BOOT_PATH##/boot}
+        set kpath=${KERNEL_PATH##/boot}
+        set ipath=${INITRD_PATH##/boot}
+        set spath=${SEED_BOOT_PATH##/boot}
     fi
-
-    if [ -f ${SEED_BOOT_PATH} ]; then
-        set seedpath=${SEED_BOOT_PATH}
-    else
-        set seedpath=${SEED_BOOT_PATH##/boot}
-    fi
-
-    loopback loop \$isopath
-
     if loadfont unicode ; then
         set gfxmode=auto
     fi
-
-    linux (loop)${UBUNTU_CASPER_VMLINUZ} ${KERNEL_APPEND} iso-scan/filename=\$isopath
-    initrd (loop)${UBUNTU_CASPER_INITRD} \$seedpath
+    linux \$kpath ${KERNEL_APPEND}
+    initrd \$ipath \$spath
 }
 EOF
 else
@@ -594,12 +530,12 @@ chmod +x /etc/grub.d/40_custom
 
 if [ -f /etc/default/grub ]; then
     if grep -q '^GRUB_DEFAULT=' /etc/default/grub; then
-        sed -i "s|^GRUB_DEFAULT=.*|GRUB_DEFAULT=\"${GRUB_TITLE}\"|" /etc/default/grub
+        sed -i "s/GRUB_DEFAULT=.*/GRUB_DEFAULT=\"${GRUB_TITLE}\"/" /etc/default/grub
     else
         echo "GRUB_DEFAULT=\"${GRUB_TITLE}\"" >> /etc/default/grub
     fi
 
-    sed -i '/^GRUB_DISABLE_OS_PROBER=/d' /etc/default/grub
+    sed -i '/GRUB_DISABLE_OS_PROBER/d' /etc/default/grub
     echo "GRUB_DISABLE_OS_PROBER=true" >> /etc/default/grub
 fi
 
@@ -622,10 +558,11 @@ echo -e "    IP       : ${YELLOW}${V_IP}${NC}"
 echo -e "    SSH Port : ${YELLOW}${SSH_PORT}${NC}"
 echo -e "    Password : ${YELLOW}${ROOT_PASS}${NC}"
 if [ "$UBUNTU_MODE" -eq 1 ]; then
-    echo -e "    ISO      : ${YELLOW}${ISO_BOOT_PATH}${NC}"
+    echo -e "    Kernel   : ${YELLOW}${KERNEL_PATH}${NC}"
+    echo -e "    Initrd   : ${YELLOW}${INITRD_PATH}${NC}"
     echo -e "    Seed     : ${YELLOW}${SEED_BOOT_PATH}${NC}"
 fi
-echo -e "${RED}${BOLD}ATTENTION: Installation time depends on network and mirror speed.${NC}"
+echo -e "${RED}${BOLD}ATTENTION: Installation takes 5-30 minutes depending on network speed.${NC}"
 echo -e "${RED}${BOLD}The system will reboot automatically when finished.${NC}"
 
 if [ "$DEFAULT_PASSWORD_USED" -eq 1 ]; then
@@ -635,10 +572,6 @@ fi
 echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
 
 echo -ne "\nRebooting in "
-for i in {10..1}; do
-    echo -n "$i... "
-    sleep 1
-done
+for i in {10..1}; do echo -n "$i... "; sleep 1; done
 echo -e "\n${RED}${BOLD}Rebooting now!${NC}"
-sync
-reboot -f
+sync && reboot -f
