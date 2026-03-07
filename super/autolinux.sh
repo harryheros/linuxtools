@@ -302,65 +302,49 @@ EOF
 # Download to RAM → inject cloud-init → dd to disk → reboot
 # ==============================================================================
 install_ubuntu() {
-    echo -e "\n${BOLD}${CYAN}Step: Installing Ubuntu via Cloud Image (Pre-fix Method)...${NC}"
+    echo -e "\n${BOLD}${CYAN}Step: Installing Ubuntu via QCOW2 Cloud Image...${NC}"
 
     case "$RELEASE" in
         22) IMG_URL="https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-amd64.img" ;;
         *)  IMG_URL="https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img" ;;
     esac
 
+    # Ensure qemu-utils is available
+    if ! command -v qemu-img >/dev/null 2>&1; then
+        echo -e "${CYAN}Installing qemu-utils...${NC}"
+        apt-get install -y qemu-utils 2>/dev/null || \
+        yum install -y qemu-img 2>/dev/null || \
+        dnf install -y qemu-img 2>/dev/null || true
+    fi
+    if ! command -v qemu-nbd >/dev/null 2>&1; then
+        echo -e "${RED}Error: qemu-utils not available.${NC}"; exit 1
+    fi
+
     IMG_PATH="/tmp/ubuntu-cloud.img"
-    echo -e "${CYAN}Downloading Ubuntu cloud image (~650MB)...${NC}"
+    echo -e "${CYAN}Downloading Ubuntu cloud image (~600MB)...${NC}"
     wget --continue --show-progress -O "${IMG_PATH}" "${IMG_URL}"
 
-    # --- Analyse partition layout ---
-    echo -e "${CYAN}Analysing image partition layout...${NC}"
-    echo "=== sfdisk ==="
-    sfdisk -l "${IMG_PATH}" 2>/dev/null || fdisk -l "${IMG_PATH}" 2>/dev/null || true
-    echo "=== sgdisk ==="
-    sgdisk -p "${IMG_PATH}" 2>/dev/null || true
+    echo -e "${CYAN}Image info:${NC}"
+    qemu-img info "${IMG_PATH}"
 
-    # Use sgdisk to find partitions by type GUID (most reliable for GPT)
-    # EFI = ef00, Linux ext4 = 8300 or 8302
-    SECTOR_SIZE=512
+    # --- Mount QCOW2 via qemu-nbd to access partitions ---
+    echo -e "${CYAN}Mounting QCOW2 image via NBD...${NC}"
+    modprobe nbd max_part=16
+    sleep 1
+    qemu-nbd --connect=/dev/nbd0 "${IMG_PATH}"
+    sleep 2
 
-    # sgdisk -i gives partition info; -p gives table
-    # Extract start sector for EFI (type ef00) and Linux (type 8300)
-    EFI_START=$(sgdisk -p "${IMG_PATH}" 2>/dev/null | grep -i "EFI" | awk '{print $2}' | head -1)
-    ROOT_START=$(sgdisk -p "${IMG_PATH}" 2>/dev/null | grep -i "Linux\|8300\|8302" | sort -k4 -rn | awk '{print $2}' | head -1)
+    echo -e "${CYAN}Partitions in image:${NC}"
+    sfdisk -l /dev/nbd0 || true
+    lsblk /dev/nbd0 || true
 
-    # Fallback: use sfdisk JSON output
-    if [ -z "$ROOT_START" ] && command -v sfdisk >/dev/null 2>&1; then
-        ROOT_START=$(sfdisk --json "${IMG_PATH}" 2>/dev/null | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-parts=[p for p in d['partitiontable']['partitions'] if p.get('type','')=='0FC63DAF-8483-4772-8E79-3D69D8477DE4']
-parts.sort(key=lambda p:p['size'],reverse=True)
-print(parts[0]['start'] if parts else '')
-" 2>/dev/null || true)
-        EFI_START=$(sfdisk --json "${IMG_PATH}" 2>/dev/null | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-parts=[p for p in d['partitiontable']['partitions'] if p.get('type','')=='C12A7328-F81F-11D2-BA4B-00A0C93EC93B']
-print(parts[0]['start'] if parts else '')
-" 2>/dev/null || true)
-    fi
+    # Find root (ext4) and EFI (vfat) partitions
+    IMG_ROOT=$(lsblk -lnp -o NAME,FSTYPE /dev/nbd0 2>/dev/null | grep "ext4" | awk '{print $1}' | head -1)
+    IMG_EFI=$(lsblk -lnp -o NAME,FSTYPE /dev/nbd0 2>/dev/null | grep "vfat" | awk '{print $1}' | head -1)
+    echo -e "${CYAN}Root: ${IMG_ROOT}${NC}"
+    echo -e "${CYAN}EFI : ${IMG_EFI}${NC}"
 
-    echo -e "${CYAN}Root start sector: ${ROOT_START}${NC}"
-    echo -e "${CYAN}EFI  start sector: ${EFI_START}${NC}"
-
-    if [ -z "$ROOT_START" ] || ! [[ "$ROOT_START" =~ ^[0-9]+$ ]]; then
-        echo -e "${RED}Error: Could not determine root partition offset. Aborting.${NC}"
-        rm -f "${IMG_PATH}"
-        exit 1
-    fi
-
-    ROOT_OFFSET=$(( ROOT_START * SECTOR_SIZE ))
-    EFI_OFFSET=$(( EFI_START * SECTOR_SIZE ))
-    echo -e "${CYAN}Root offset: ${ROOT_OFFSET} bytes${NC}"
-    echo -e "${CYAN}EFI  offset: ${EFI_OFFSET} bytes${NC}"
-
-    # --- Generate cloud-init config ---
+    # --- Inject cloud-init into root partition ---
     TEMP_CFG="/tmp/autolinux_cfg"
     mkdir -p "${TEMP_CFG}"
 
@@ -413,59 +397,61 @@ runcmd:
   - resize2fs /dev/sda1 || true
 EOF
 
-    # --- Step 1: Inject cloud-init into root partition ---
-    echo -e "${CYAN}Injecting cloud-init into root partition (offset ${ROOT_OFFSET})...${NC}"
-    LOOP_ROOT=$(losetup --find --show -o "${ROOT_OFFSET}" "${IMG_PATH}")
-    echo -e "${CYAN}Root loop device: ${LOOP_ROOT}${NC}"
-    debugfs -w -R "mkdir /var"                        "${LOOP_ROOT}" 2>/dev/null || true
-    debugfs -w -R "mkdir /var/lib"                    "${LOOP_ROOT}" 2>/dev/null || true
-    debugfs -w -R "mkdir /var/lib/cloud"              "${LOOP_ROOT}" 2>/dev/null || true
-    debugfs -w -R "mkdir /var/lib/cloud/seed"         "${LOOP_ROOT}" 2>/dev/null || true
-    debugfs -w -R "mkdir /var/lib/cloud/seed/nocloud" "${LOOP_ROOT}" 2>/dev/null || true
-    debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${LOOP_ROOT}"
-    debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${LOOP_ROOT}"
-    sync
-    losetup -d "${LOOP_ROOT}"
-    echo -e "${GREEN}cloud-init injection complete!${NC}"
+    if [ -n "$IMG_ROOT" ] && [ -b "$IMG_ROOT" ]; then
+        echo -e "${CYAN}Injecting cloud-init into ${IMG_ROOT}...${NC}"
+        debugfs -w -R "mkdir /var"                        "${IMG_ROOT}" 2>/dev/null || true
+        debugfs -w -R "mkdir /var/lib"                    "${IMG_ROOT}" 2>/dev/null || true
+        debugfs -w -R "mkdir /var/lib/cloud"              "${IMG_ROOT}" 2>/dev/null || true
+        debugfs -w -R "mkdir /var/lib/cloud/seed"         "${IMG_ROOT}" 2>/dev/null || true
+        debugfs -w -R "mkdir /var/lib/cloud/seed/nocloud" "${IMG_ROOT}" 2>/dev/null || true
+        debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${IMG_ROOT}"
+        debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${IMG_ROOT}"
+        sync
+        echo -e "${GREEN}cloud-init injection complete!${NC}"
+    else
+        echo -e "${YELLOW}Warning: Could not find root partition, skipping cloud-init injection.${NC}"
+    fi
 
-    # --- Step 2: Fix EFI fallback path in image ---
-    if [ -n "$EFI_START" ] && [[ "$EFI_START" =~ ^[0-9]+$ ]] && [ "$EFI_OFFSET" -gt 0 ]; then
-        echo -e "${CYAN}Fixing EFI fallback path in image (offset ${EFI_OFFSET})...${NC}"
+    # --- Fix EFI fallback path ---
+    if [ -n "$IMG_EFI" ] && [ -b "$IMG_EFI" ]; then
+        echo -e "${CYAN}Fixing EFI fallback path in image...${NC}"
         EFI_MNT="/tmp/efi_fix_mnt"
         mkdir -p "${EFI_MNT}"
-        LOOP_EFI=$(losetup --find --show -o "${EFI_OFFSET}" "${IMG_PATH}")
-        echo -e "${CYAN}EFI loop device: ${LOOP_EFI}${NC}"
-        if mount -t vfat "${LOOP_EFI}" "${EFI_MNT}" 2>/dev/null; then
+        if mount -t vfat "${IMG_EFI}" "${EFI_MNT}" 2>/dev/null; then
             mkdir -p "${EFI_MNT}/EFI/BOOT"
             if [ -f "${EFI_MNT}/EFI/ubuntu/shimx64.efi" ]; then
                 cp "${EFI_MNT}/EFI/ubuntu/shimx64.efi" "${EFI_MNT}/EFI/BOOT/BOOTX64.EFI"
                 cp "${EFI_MNT}/EFI/ubuntu/grubx64.efi"  "${EFI_MNT}/EFI/BOOT/grubx64.efi" 2>/dev/null || true
-                echo -e "${GREEN}EFI/BOOT/BOOTX64.EFI written into image!${NC}"
+                echo -e "${GREEN}EFI/BOOT/BOOTX64.EFI written!${NC}"
             else
                 echo -e "${YELLOW}shimx64.efi not found. EFI contents:${NC}"
                 find "${EFI_MNT}" -type f 2>/dev/null || true
             fi
             sync
             umount "${EFI_MNT}"
-        else
-            echo -e "${YELLOW}Warning: Could not mount EFI partition from image.${NC}"
         fi
-        losetup -d "${LOOP_EFI}" 2>/dev/null || true
     fi
 
-    # --- Step 3: dd pre-fixed image to disk ---
-    echo -e "${CYAN}Writing pre-fixed image to ${REAL_DISK}...${NC}"
-    dd if="${IMG_PATH}" of="${REAL_DISK}" bs=4M status=progress conv=fsync
+    # --- Disconnect NBD and write to disk ---
+    qemu-nbd --disconnect /dev/nbd0
+    sleep 1
+
+    echo -e "${CYAN}Writing QCOW2 image directly to ${REAL_DISK}...${NC}"
+    # qemu-img convert writes the expanded raw image directly to disk
+    # No intermediate file needed — saves disk space
+    qemu-img convert -f qcow2 -O raw -p "${IMG_PATH}" "${REAL_DISK}"
     rm -f "${IMG_PATH}"
 
-    # Fix GPT backup header to match actual disk size
+    # Fix GPT backup header (image sized ~3.5GB, disk may be larger)
+    echo -e "${CYAN}Fixing GPT backup header...${NC}"
     sgdisk -e "${REAL_DISK}" 2>/dev/null || true
     partprobe "${REAL_DISK}" 2>/dev/null || true
 
-    echo -e "${GREEN}Ubuntu ready — rebooting into Ubuntu!${NC}"
+    echo -e "${GREEN}Ubuntu written to disk — ready to reboot!${NC}"
     GRUB_TITLE=""
     UBUNTU_CLOUD=1
 }
+
 
 
 
