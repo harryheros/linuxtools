@@ -373,44 +373,36 @@ EOF
 
     if [ -n "$IMG_ROOT" ] && [ -b "$IMG_ROOT" ]; then
         echo -e "${CYAN}Injecting cloud-init into ${IMG_ROOT}...${NC}"
+
+        cat > "${TEMP_CFG}/network-config" <<EOF
+version: 2
+ethernets:
+  eth0:
+    dhcp4: false
+    dhcp6: false
+    addresses:
+      - ${V_IP}/${V_PREFIX}
+    routes:
+      - to: default
+        via: ${V_GATEWAY}
+    nameservers:
+      addresses:
+        - 8.8.8.8
+        - 1.1.1.1
+EOF
+
         debugfs -w -R "mkdir /var"                        "${IMG_ROOT}" 2>/dev/null || true
         debugfs -w -R "mkdir /var/lib"                    "${IMG_ROOT}" 2>/dev/null || true
         debugfs -w -R "mkdir /var/lib/cloud"              "${IMG_ROOT}" 2>/dev/null || true
         debugfs -w -R "mkdir /var/lib/cloud/seed"         "${IMG_ROOT}" 2>/dev/null || true
         debugfs -w -R "mkdir /var/lib/cloud/seed/nocloud" "${IMG_ROOT}" 2>/dev/null || true
-        debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${IMG_ROOT}"
-        debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${IMG_ROOT}"
+        debugfs -w -R "write ${TEMP_CFG}/meta-data       /var/lib/cloud/seed/nocloud/meta-data"      "${IMG_ROOT}"
+        debugfs -w -R "write ${TEMP_CFG}/user-data       /var/lib/cloud/seed/nocloud/user-data"      "${IMG_ROOT}"
+        debugfs -w -R "write ${TEMP_CFG}/network-config  /var/lib/cloud/seed/nocloud/network-config" "${IMG_ROOT}"
         sync
-        echo -e "${GREEN}cloud-init injection complete!${NC}"
-
-        # Write static netplan directly into image via mount
-        ROOT_MNT="/tmp/img_root_mnt"
-        mkdir -p "${ROOT_MNT}"
-        if mount -t ext4 "${IMG_ROOT}" "${ROOT_MNT}" 2>/dev/null; then
-            echo -e "${CYAN}Writing static netplan into image...${NC}"
-            # Overwrite 50-cloud-init.yaml with static IP so DHCP never runs
-            cat > "${ROOT_MNT}/etc/netplan/50-cloud-init.yaml" <<NETPLAN
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    ${INTERFACE}:
-      dhcp4: false
-      addresses: [${V_IP}/${V_PREFIX}]
-      routes:
-        - to: default
-          via: ${V_GATEWAY}
-      nameservers:
-        addresses: [8.8.8.8, 1.1.1.1]
-NETPLAN
-            sync
-            umount "${ROOT_MNT}"
-            echo -e "${GREEN}Static netplan written!${NC}"
-        else
-            echo -e "${YELLOW}Warning: Could not mount root for netplan, will rely on cloud-init.${NC}"
-        fi
+        echo -e "${GREEN}cloud-init injection complete! (meta-data / user-data / network-config)${NC}"
     else
-        echo -e "${YELLOW}Warning: Could not find root partition, skipping injection.${NC}"
+        echo -e "${YELLOW}Warning: Could not find root partition, skipping cloud-init injection.${NC}"
     fi
 
     # --- Fix EFI fallback path ---
