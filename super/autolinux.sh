@@ -129,9 +129,9 @@ fi
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update -y
     apt-get install -y util-linux wget ca-certificates kexec-tools tar gzip cpio \
-        grub2-common cloud-guest-utils e2fsprogs
+        grub2-common cloud-guest-utils e2fsprogs qemu-utils gdisk
 elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y util-linux wget ca-certificates kexec-tools tar gzip cpio \
+    dnf install -y util-linux wget ca-certificates kexec-tools tar gzip cpio qemu-img gdisk \
         grub2 grub2-tools cloud-utils-growpart e2fsprogs
     [ ! -f /usr/sbin/grub-probe ] && [ -f /usr/sbin/grub2-probe ] && \
         ln -sf /usr/sbin/grub2-probe /usr/sbin/grub-probe
@@ -309,38 +309,25 @@ install_ubuntu() {
         *)  IMG_URL="https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img" ;;
     esac
 
-    # Ensure qemu-utils is available
-    if ! command -v qemu-img >/dev/null 2>&1; then
-        echo -e "${CYAN}Installing qemu-utils...${NC}"
-        apt-get install -y qemu-utils 2>/dev/null || \
-        yum install -y qemu-img 2>/dev/null || \
-        dnf install -y qemu-img 2>/dev/null || true
-    fi
-    if ! command -v qemu-nbd >/dev/null 2>&1; then
-        echo -e "${RED}Error: qemu-utils not available.${NC}"; exit 1
-    fi
-
-    IMG_PATH="/tmp/ubuntu-cloud.img"
+    # Use /var/tmp (disk-backed) — avoids RAM pressure on low-memory VPS
+    IMG_PATH="/var/tmp/ubuntu-cloud.img"
     echo -e "${CYAN}Downloading Ubuntu cloud image (~600MB)...${NC}"
     wget --continue --show-progress -O "${IMG_PATH}" "${IMG_URL}"
 
-    echo -e "${CYAN}Image info:${NC}"
-    qemu-img info "${IMG_PATH}"
-
-    # --- Mount QCOW2 via qemu-nbd to access partitions ---
+    # --- Mount QCOW2 via qemu-nbd ---
     echo -e "${CYAN}Mounting QCOW2 image via NBD...${NC}"
     modprobe nbd max_part=16
     sleep 1
+    qemu-nbd --disconnect /dev/nbd0 2>/dev/null || true
     qemu-nbd --connect=/dev/nbd0 "${IMG_PATH}"
     sleep 2
 
     echo -e "${CYAN}Partitions in image:${NC}"
-    sfdisk -l /dev/nbd0 || true
     lsblk /dev/nbd0 || true
 
-    # Find root (ext4) and EFI (vfat) partitions
-    IMG_ROOT=$(lsblk -lnp -o NAME,FSTYPE /dev/nbd0 2>/dev/null | grep "ext4" | awk '{print $1}' | head -1)
-    IMG_EFI=$(lsblk -lnp -o NAME,FSTYPE /dev/nbd0 2>/dev/null | grep "vfat" | awk '{print $1}' | head -1)
+    # Find root (largest ext4) and EFI (vfat) partitions
+    IMG_ROOT=$(lsblk -lnp -o NAME,FSTYPE,SIZE /dev/nbd0 2>/dev/null | grep "ext4" | sort -hk3 | tail -n1 | awk '{print $1}')
+    IMG_EFI=$(lsblk -lnp -o NAME,FSTYPE /dev/nbd0 2>/dev/null | grep "vfat" | head -n1 | awk '{print $1}')
     echo -e "${CYAN}Root: ${IMG_ROOT}${NC}"
     echo -e "${CYAN}EFI : ${IMG_EFI}${NC}"
 
@@ -432,7 +419,7 @@ EOF
         fi
     fi
 
-    # --- Disconnect NBD and write to disk ---
+    # --- Disconnect NBD BEFORE convert (after convert /tmp is gone) ---
     qemu-nbd --disconnect /dev/nbd0
     sleep 1
 
@@ -442,9 +429,10 @@ EOF
     qemu-img convert -f qcow2 -O raw -p "${IMG_PATH}" "${REAL_DISK}"
     # Note: /tmp is gone after convert overwrites /dev/sda, no cleanup needed
 
-    # Fix GPT backup header (image sized ~3.5GB, disk may be larger)
+    # Fix GPT backup header (image ~3.5GB, disk may be larger)
     echo -e "${CYAN}Fixing GPT backup header...${NC}"
     sgdisk -e "${REAL_DISK}" 2>/dev/null || true
+    partx -u "${REAL_DISK}" 2>/dev/null || true
     partprobe "${REAL_DISK}" 2>/dev/null || true
 
     echo -e "${GREEN}Ubuntu written to disk — ready to reboot!${NC}"
