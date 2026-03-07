@@ -412,26 +412,44 @@ EOF
     cp "${WORKDIR}/iso_mount/casper/initrd"  "${WORKDIR}/casper_data/initrd.gz"
     umount "${WORKDIR}/iso_mount" 2>/dev/null || true
 
-    # --- Build config layer and concatenate with original initrd ---
-    # Place user-data and meta-data at initrd ROOT (not subdirectory).
-    # ds=nocloud-net;s=file:/// reads directly from initrd root.
-    mkdir -p "${WORKDIR}/initrd_inject"
-    cp "${WORKDIR}/user-data" "${WORKDIR}/initrd_inject/user-data"
-    cp "${WORKDIR}/meta-data" "${WORKDIR}/initrd_inject/meta-data"
+    # --- Unpack initrd, surgically patch casper, inject config, repack ---
+    echo -e "${CYAN}Unpacking Ubuntu initrd for casper surgery...${NC}"
+    mkdir -p "${WORKDIR}/initrd_repack"
+    cd "${WORKDIR}/initrd_repack"
 
-    cd "${WORKDIR}/initrd_inject"
-    find . | cpio -H newc -o | gzip -9 > "${WORKDIR}/config_layer.gz"
+    # Ubuntu initrd is multi-segment; unmkinitramfs handles this correctly
+    if command -v unmkinitramfs >/dev/null 2>&1; then
+        unmkinitramfs "${WORKDIR}/casper_data/initrd.gz" . >/dev/null 2>&1 || \
+            zcat "${WORKDIR}/casper_data/initrd.gz" | cpio -idmu >/dev/null 2>&1
+    else
+        zcat "${WORKDIR}/casper_data/initrd.gz" | cpio -idmu >/dev/null 2>&1
+    fi
 
+    # --- Casper surgery: disable sr0/cdrom scanning ---
+    echo -e "${CYAN}Patching casper to skip sr0 scanning...${NC}"
+    if [ -f "scripts/casper" ]; then
+        sed -i 's/check_dev "${dev}"/false/g' scripts/casper
+        sed -i 's|/dev/sr[0-9]|/dev/null|g' scripts/casper
+        echo -e "${CYAN}Patched: scripts/casper${NC}"
+    fi
+    if [ -f "scripts/casper-helpers" ]; then
+        sed -i 's|/dev/sr[0-9]|/dev/null|g' scripts/casper-helpers
+        echo -e "${CYAN}Patched: scripts/casper-helpers${NC}"
+    fi
+
+    # --- Inject autoinstall config at initrd root ---
+    cp "${WORKDIR}/user-data" ./user-data
+    cp "${WORKDIR}/meta-data" ./meta-data
+
+    # --- Repack complete modified initrd ---
+    echo -e "${CYAN}Repacking modified initrd...${NC}"
     rm -f /boot/vmlinuz-*autolinux /boot/initrd-*autolinux.gz 2>/dev/null
-    cat "${WORKDIR}/casper_data/initrd.gz" "${WORKDIR}/config_layer.gz"         > /boot/initrd-ubuntu${RELEASE}-autolinux.gz
+    find . | cpio -H newc -o 2>/dev/null | gzip -9 > /boot/initrd-ubuntu${RELEASE}-autolinux.gz
     cp "${WORKDIR}/casper_data/vmlinuz" /boot/vmlinuz-ubuntu${RELEASE}-autolinux
 
     KERNEL_PATH="/boot/vmlinuz-ubuntu${RELEASE}-autolinux"
     INITRD_PATH="/boot/initrd-ubuntu${RELEASE}-autolinux.gz"
-    # ds=nocloud-net;s=file:/// reads user-data from initrd root
-    # builtin_cdrom=0 prevents /dev/sr0 scanning error
-    # cloud-config-url=/dev/null prevents network config fetch
-    KERNEL_APPEND="autoinstall ds=nocloud-net;s=file:/// ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}:ubuntu::off:8.8.8.8 cloud-config-url=/dev/null root=/dev/ram0 console=tty0 ---"
+    KERNEL_APPEND="autoinstall ds=nocloud-net;s=file:/// ip=${V_IP}::${V_GATEWAY}:${V_NETMASK}:ubuntu::off:8.8.8.8 cloud-config-url=/dev/null console=tty0 ---"
     GRUB_TITLE="AutoLinux-Ubuntu${RELEASE}"
 }
 
