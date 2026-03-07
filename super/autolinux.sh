@@ -518,8 +518,12 @@ echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌�
 echo -ne "\nRebooting in "
 for i in {10..1}; do echo -n "$i... "; sleep 1; done
 echo -e "\n${RED}${BOLD}Rebooting now!${NC}"
-sync
+sync && sleep 2
+# Enable SysRq
 echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
-echo b > /proc/sys/kernel/sysrq 2>/dev/null || true
+# Trigger reboot via correct path
+echo b > /proc/sysrq-trigger 2>/dev/null || true
+# Fallbacks
 reboot -f -n 2>/dev/null || true
 systemctl reboot --force --force 2>/dev/null || true
+python3 -c "import ctypes; ctypes.CDLL('libc.so.6').reboot(0x1234567)" 2>/dev/null || true
