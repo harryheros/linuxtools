@@ -309,19 +309,32 @@ install_ubuntu() {
         *)  IMG_URL="https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img" ;;
     esac
 
-    # --- Download cloud image (~650MB) directly to disk swap space to avoid RAM issues ---
-    # We write to a temp file on /tmp (disk-backed), not RAM
     IMG_PATH="/tmp/ubuntu-cloud.img"
     echo -e "${CYAN}Downloading Ubuntu cloud image (~650MB)...${NC}"
     wget --continue --show-progress -O "${IMG_PATH}" "${IMG_URL}"
 
-    # --- Inject cloud-init via debugfs (no mount needed) ---
+    # --- Map image partitions correctly ---
+    echo -e "${CYAN}Mapping image partitions...${NC}"
+    LOOP_IMG=$(losetup --find --show -P "${IMG_PATH}")
+    sleep 2
+
+    # Find largest ext4 partition (root)
+    SRC_PART=$(lsblk -lnp -o NAME,FSTYPE,SIZE "${LOOP_IMG}" 2>/dev/null | grep "ext4" | sort -hk3 | tail -n1 | awk '{print $1}')
+    if [ -z "$SRC_PART" ] || [ ! -b "$SRC_PART" ]; then
+        echo -e "${RED}Error: Failed to map root partition. Partitions found:${NC}"
+        lsblk "${LOOP_IMG}"
+        losetup -d "${LOOP_IMG}"
+        exit 1
+    fi
+    echo -e "${CYAN}Root partition: ${SRC_PART}${NC}"
+
+    # --- Inject cloud-init via debugfs ---
     echo -e "${CYAN}Injecting cloud-init configuration...${NC}"
     TEMP_CFG="/tmp/autolinux_cfg"
     mkdir -p "${TEMP_CFG}"
 
     cat > "${TEMP_CFG}/meta-data" <<EOF
-instance-id: autolinux-$(date +%s)
+instance-id: i-$(date +%s)
 local-hostname: ubuntu
 EOF
 
@@ -369,21 +382,6 @@ runcmd:
   - resize2fs /dev/sda1 || true
 EOF
 
-    # Find ext4 root partition via debugfs
-    LOOPDEV="$(losetup --find --show -P "${IMG_PATH}")"
-    sleep 2
-    kpartx -av "${LOOPDEV}" 2>/dev/null || true
-    partprobe "${LOOPDEV}" 2>/dev/null || true
-    sleep 2
-
-    SRC_PART=$(lsblk -lnp -o NAME,FSTYPE "${LOOPDEV}" 2>/dev/null | grep "ext4" | awk '{print $1}' | head -1)
-    if [ -z "$SRC_PART" ]; then
-        MAP_NAME="$(basename "${LOOPDEV}")"
-        [ -b "/dev/mapper/${MAP_NAME}p1" ] && SRC_PART="/dev/mapper/${MAP_NAME}p1"
-    fi
-    [ -z "$SRC_PART" ] && SRC_PART="${IMG_PATH}"
-    echo -e "${CYAN}Root partition: ${SRC_PART}${NC}"
-
     debugfs -w -R "mkdir /var"                        "${SRC_PART}" 2>/dev/null || true
     debugfs -w -R "mkdir /var/lib"                    "${SRC_PART}" 2>/dev/null || true
     debugfs -w -R "mkdir /var/lib/cloud"              "${SRC_PART}" 2>/dev/null || true
@@ -391,71 +389,68 @@ EOF
     debugfs -w -R "mkdir /var/lib/cloud/seed/nocloud" "${SRC_PART}" 2>/dev/null || true
     debugfs -w -R "write ${TEMP_CFG}/meta-data /var/lib/cloud/seed/nocloud/meta-data" "${SRC_PART}"
     debugfs -w -R "write ${TEMP_CFG}/user-data /var/lib/cloud/seed/nocloud/user-data" "${SRC_PART}"
-    sync
-    kpartx -dv "${LOOPDEV}" 2>/dev/null || true
-    losetup -d "${LOOPDEV}" 2>/dev/null || true
+    sync && sleep 1
+    losetup -d "${LOOP_IMG}"
     echo -e "${GREEN}cloud-init injection complete!${NC}"
 
-    # --- dd image to disk ---
+    # --- dd to disk ---
     echo -e "${CYAN}Writing image to ${REAL_DISK}...${NC}"
     dd if="${IMG_PATH}" of="${REAL_DISK}" bs=4M status=progress conv=fsync
     rm -f "${IMG_PATH}"
 
-    # --- Fix GPT header ---
-    echo -e "${CYAN}Fixing GPT structure...${NC}"
-    if ! command -v sgdisk >/dev/null 2>&1; then
-        apt-get install -y gdisk 2>/dev/null || yum install -y gdisk 2>/dev/null || true
-    fi
-    sgdisk -e "${REAL_DISK}" || true
-    sgdisk -t 15:ef00 "${REAL_DISK}" || true
-
-    # Force kernel to re-read new partition table
-    # partx -u updates existing entries, -a adds new ones
+    # --- Force kernel to re-read new partition table ---
+    # Must do partx before sgdisk, otherwise kernel still sees old layout
     partx -u "${REAL_DISK}" 2>/dev/null || true
     partx -a "${REAL_DISK}" 2>/dev/null || true
-    blockdev --rereadpt "${REAL_DISK}" 2>/dev/null || true
     partprobe "${REAL_DISK}" 2>/dev/null || true
     sleep 3
+
+    # --- Fix GPT backup header ---
+    echo -e "${CYAN}Repairing GPT and EFI paths...${NC}"
+    sgdisk -e "${REAL_DISK}" 2>/dev/null || true
+    sgdisk -t 15:ef00 "${REAL_DISK}" 2>/dev/null || true
+    partprobe "${REAL_DISK}" 2>/dev/null || true
+    sleep 2
 
     echo -e "${CYAN}Partitions after refresh:${NC}"
     lsblk "${REAL_DISK}"
 
-    # --- Fix EFI default boot path (no chroot needed) ---
-    # UEFI firmware always tries /EFI/BOOT/BOOTX64.EFI as fallback — guaranteed to work
-    echo -e "${CYAN}Fixing EFI boot paths...${NC}"
+    # --- Fix EFI fallback path ---
     case "${REAL_DISK}" in
-        *nvme*|*mmcblk*) EFI_PART="${REAL_DISK}p15" ;;
-        *)                EFI_PART="${REAL_DISK}15"  ;;
+        *nvme*|*mmcblk*) EFI_DEV="${REAL_DISK}p15" ;;
+        *)                EFI_DEV="${REAL_DISK}15"  ;;
     esac
 
     EFI_MNT="/mnt/efi_fix"
     mkdir -p "${EFI_MNT}"
-    if mount "${EFI_PART}" "${EFI_MNT}"; then
+    if mount "${EFI_DEV}" "${EFI_MNT}" 2>/dev/null; then
         mkdir -p "${EFI_MNT}/EFI/BOOT"
         if [ -f "${EFI_MNT}/EFI/ubuntu/shimx64.efi" ]; then
             cp "${EFI_MNT}/EFI/ubuntu/shimx64.efi" "${EFI_MNT}/EFI/BOOT/BOOTX64.EFI"
             cp "${EFI_MNT}/EFI/ubuntu/grubx64.efi"  "${EFI_MNT}/EFI/BOOT/grubx64.efi" 2>/dev/null || true
-            echo -e "${GREEN}EFI default path fixed!${NC}"
+            echo -e "${GREEN}EFI fallback path fixed!${NC}"
         else
             echo -e "${YELLOW}shimx64.efi not found. EFI contents:${NC}"
             find "${EFI_MNT}" -type f 2>/dev/null || true
         fi
         umount "${EFI_MNT}"
     else
-        echo -e "${RED}Could not mount EFI partition ${EFI_PART}${NC}"
+        echo -e "${YELLOW}Warning: Could not mount ${EFI_DEV}. Partitions visible to kernel:${NC}"
         lsblk "${REAL_DISK}"
     fi
 
-    # --- Register NVRAM entry (double insurance) ---
+    # --- Register NVRAM (double insurance) ---
     if [ -d /sys/firmware/efi ]; then
         apt-get install -y efibootmgr 2>/dev/null || true
         efibootmgr -B -L "Ubuntu" 2>/dev/null || true
-        efibootmgr -c -d "${REAL_DISK}" -p 15 -L "Ubuntu"             -l "\EFI\ubuntu\shimx64.efi" 2>/dev/null || true
+        efibootmgr -c -d "${REAL_DISK}" -p 15 -L "Ubuntu" \
+            -l "\\EFI\\ubuntu\\shimx64.efi" 2>/dev/null || true
     fi
 
     GRUB_TITLE=""
     UBUNTU_CLOUD=1
 }
+
 # --- Run the appropriate installer ---
 if [ "$OS_TYPE" = "debian" ]; then
     install_debian
