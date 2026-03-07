@@ -503,3 +503,4 @@ else
     reboot -f -n 2>/dev/null || true
     systemctl reboot --force --force 2>/dev/null || true
     python3 -c "import ctypes; ctypes.CDLL('libc.so.6').reboot(0x1234567)" 2>/dev/null || true
+    fi
