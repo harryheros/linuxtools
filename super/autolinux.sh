@@ -332,7 +332,10 @@ install_ubuntu() {
     # 1. Root password via chroot
     echo "root:${ROOT_PASS}" | chroot "${ROOT_MNT}" chpasswd
 
-    # 2. SSH config
+    # 2. SSH config — patch main sshd_config directly inside mounted image
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' "${ROOT_MNT}/etc/ssh/sshd_config"
+    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' "${ROOT_MNT}/etc/ssh/sshd_config"
+    sed -i "s/^#\?Port .*/Port ${SSH_PORT}/" "${ROOT_MNT}/etc/ssh/sshd_config"
     mkdir -p "${ROOT_MNT}/etc/ssh/sshd_config.d"
     cat > "${ROOT_MNT}/etc/ssh/sshd_config.d/99-autolinux.conf" <<EOF
 PermitRootLogin yes
