@@ -1,255 +1,246 @@
 # 🚀 AutoLinux v2.0.1 — Unified Linux Auto Installer
 
-[![Version](https://img.shields.io/badge/version-2.0.1-green.svg)](#)  
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)  
-[![OS Support](https://img.shields.io/badge/OS-Debian%2011%20%7C%2012%20%7C%2013%20%7C%20Ubuntu%2022.04%20%7C%2024.04-red.svg)](#)  
-[![Platform](https://img.shields.io/badge/Platform-BIOS%20%7C%20UEFI-orange.svg)](#)
+![Version](https://img.shields.io/badge/version-2.0.1-green.svg)  
+![License](https://img.shields.io/badge/License-GPLv3-blue.svg)  
+![OS Support](https://img.shields.io/badge/OS-Debian%2011%20%7C%2012%20%7C%2013%20%7C%20Ubuntu%2022.04%20%7C%2024.04-red.svg)  
+![Platform](https://img.shields.io/badge/Platform-BIOS%20%7C%20UEFI-orange.svg)  
+![Language](https://img.shields.io/badge/language-bash-black.svg)
 
-**High-performance automated Linux reinstall tool for VPS and bare-metal servers.**
+High-performance automated Linux reinstall tool for VPS and bare-metal servers.
 
-AutoLinux provides a unified installation workflow for Debian and Ubuntu, supports both legacy BIOS and modern UEFI environments, and focuses on deterministic behavior with minimal environmental assumptions.
+AutoLinux is a unified Linux reinstall script focused on predictable behavior, fast execution, and practical compatibility across common VPS and server environments.
 
-It is built for operators who want a reinstall process that is predictable, transparent, fast, and portable across common hosting environments.
+It supports both Debian and Ubuntu, works with legacy BIOS and modern UEFI systems, and is designed for operators who prefer a reinstall workflow that is transparent, deterministic, and field-tested.
 
-AutoLinux follows an **IPv4-first deterministic deployment model**, with **best-effort IPv6 restoration** when valid IPv6 parameters are already detectable on the source system.
+AutoLinux follows an IPv4-first deployment model, with best-effort IPv6 restoration when valid IPv6 parameters can already be detected from the source system.
 
 ---
 
 # 📑 Table of Contents
 
-- Overview
-- Quick Start
-- Key Features
-- Supported Operating Systems
-- Installation Architecture
-- Network Provisioning Model
-- Installation Flow
-- Advanced Parameters
-- Default Credentials
-- Notes
-- Security Notes
-- Design Philosophy
-- License
+Overview  
+Quick Start  
+Key Features  
+Supported Operating Systems  
+Installation Architecture  
+Network Provisioning Model  
+Installation Flow  
+Advanced Parameters  
+Default Credentials  
+Tested Environments  
+Operational Notes  
+Security Notes  
+Design Philosophy  
+License  
 
 ---
 
 # Overview
 
-AutoLinux is built to solve a common operational problem: reliably reinstalling Linux servers across heterogeneous hosting environments.
+AutoLinux solves a common operational challenge: reliably reinstalling Linux servers across heterogeneous environments without relying on provider rescue systems.
 
 Typical use cases include:
 
-- VPS operating system reinstallation
-- migrating legacy distributions to modern Debian or Ubuntu
-- rebuilding servers without rescue images
-- automated infrastructure recovery
-- clean system reprovisioning
+• VPS operating system reinstallation  
+• migrating legacy distributions to modern Debian or Ubuntu  
+• rebuilding servers without rescue images  
+• automated infrastructure recovery  
+• rapid server reprovisioning  
 
-The tool is intentionally designed to avoid unnecessary complexity and to prioritize predictable behavior over automation magic.
+The script prioritizes deterministic behavior and avoids complex environment assumptions whenever possible.
 
 ---
 
-# 🛠 Quick Start
+# ⚡ Quick Start
 
 Run as root.
 
-## Default Installation
+Default installation (Debian 12):
 
-Installs Debian 12 with SSH port 22 and the default root password.
+bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh)
 
-    bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh)
+Install Debian 13 with custom SSH port and password:
 
-## Install Debian
+bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -d 13 -p "YourPassword" --port 2222
 
-Example: Install Debian 13 with a custom password and SSH port.
+Install Ubuntu 24.04:
 
-    bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -d 13 -p "YourPassword" --port 7777
+bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -u 24
 
-## Install Ubuntu
+Install Ubuntu 22.04:
 
-Example: Install Ubuntu 24.04.
+bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -u 22
 
-    bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -u 24
-
-## Default Version Behavior
-
-- `-d` without a version defaults to Debian 12
-- `-u` without a version defaults to Ubuntu 24.04
+---
 
 ⚠ DATA LOSS WARNING
 
 This script will completely erase the primary system disk and reinstall the operating system.
 
-All existing partitions and data will be permanently destroyed.
+All existing partitions, filesystems, and data will be permanently destroyed.
+
+Use with caution.
 
 ---
 
 # ✨ Key Features
 
-## Unified Debian + Ubuntu Installer
+Unified Debian and Ubuntu Installer
 
-AutoLinux supports both Debian and Ubuntu installations through a single script.
+AutoLinux supports both Debian and Ubuntu installations through a single script interface.
 
-Debian installations use the official Debian network installer, while Ubuntu installations use official Ubuntu cloud images for fast deployment.
-
----
-
-## BIOS + UEFI Compatibility
-
-AutoLinux supports:
-
-- legacy BIOS servers
-- modern UEFI systems
-- VPS environments with mixed boot configurations
-
-Bootloader handling is deterministic and handled automatically.
+Debian installations use the official Debian network installer, while Ubuntu installations use official Ubuntu cloud images for high-speed deployment.
 
 ---
 
-## Cross-Distribution Launcher
+BIOS and UEFI Compatibility
+
+AutoLinux works in both legacy BIOS and modern UEFI environments.
+
+Bootloader handling is automatically managed depending on the detected system environment.
+
+---
+
+Cross-Distribution Launcher
 
 AutoLinux can be executed from many Linux distributions including:
 
-- Debian
-- Ubuntu
-- CentOS 7
-- AlmaLinux
-- Rocky Linux
-- Fedora
+Debian  
+Ubuntu  
+CentOS 7  
+AlmaLinux  
+Rocky Linux  
+Fedora  
 
-This allows reinstalling a server without requiring the source system to already run Debian or Ubuntu.
+This allows reinstalling servers without requiring the source system to already run Debian or Ubuntu.
 
 ---
 
-## Official Upstream Sources
+Official Upstream Sources
 
 All installation assets are fetched directly from official upstream sources.
 
-Debian installer components are downloaded from Debian infrastructure.
+Debian components come from Debian infrastructure.
 
-Ubuntu images are downloaded from the official Ubuntu cloud image servers.
+Ubuntu images come from the official Ubuntu cloud image servers.
 
-No third-party mirrors or modified images are used.
+No modified images or third-party mirrors are used.
 
 ---
 
-## Lightweight Hardware Detection
+Lightweight Hardware Detection
 
-Before installation begins, AutoLinux detects:
+Before installation begins, AutoLinux automatically detects:
 
-- the primary non-removable system disk
-- the active network interface
-- IPv4 address and prefix
-- default gateway
+• primary non-removable system disk  
+• active network interface  
+• IPv4 address and prefix  
+• default gateway  
 
-If disk detection fails, the installer falls back to `/dev/sda` with a short abort window.
+If disk detection fails, the installer falls back to /dev/sda with a short abort window.
 
 This detection model is intentionally simple and optimized for common VPS environments.
 
 ---
 
-## Deterministic Debian Installer Handoff
+Deterministic Debian Installer Handoff
 
 For Debian targets, AutoLinux performs:
 
-- netboot installer download
-- automated preseed injection
-- post-install configuration script injection
-- creation of a temporary GRUB boot entry
-- direct reboot into the installer
+1. download Debian netboot installer  
+2. inject automated preseed configuration  
+3. inject post-install configuration script  
+4. create temporary GRUB boot entry  
+5. reboot directly into the installer  
 
-This ensures a fully automated and reproducible installation flow.
+This provides a fully automated installation process using the official Debian installer.
 
 ---
 
-## High-Speed Ubuntu Deployment
+High-Speed Ubuntu Deployment
 
-Ubuntu installations avoid the traditional installer entirely.
+Ubuntu installations avoid the traditional installer.
 
 Instead, AutoLinux:
 
-- downloads the official Ubuntu cloud image
-- attaches it using qemu-nbd
-- mounts and modifies the filesystem offline
-- writes the prepared image directly to disk
+• downloads the official Ubuntu cloud image  
+• attaches the image via qemu-nbd  
+• mounts and modifies the filesystem offline  
+• injects configuration directly  
+• writes the prepared image to disk  
 
-This approach is significantly faster than traditional network installers.
-
----
-
-## Automatic SSH Configuration
-
-After installation, AutoLinux ensures remote access by enabling:
-
-- root login
-- password authentication
-- configurable SSH port
-
-Ubuntu deployments additionally write an override configuration to guarantee consistent SSH behavior.
+This approach significantly reduces deployment time.
 
 ---
 
-## Native Network Performance Optimization
+Automatic SSH Configuration
 
-AutoLinux enables modern TCP tuning automatically:
+AutoLinux ensures remote access after installation by enabling:
 
-- FQ queue discipline
-- TCP BBR congestion control
+• root login  
+• password authentication  
+• configurable SSH port  
 
-These settings are widely used in high-performance network environments.
-
----
-
-## Best-Effort IPv6 Restoration
-
-AutoLinux does not automatically provision IPv6 networking.
-
-Instead, it attempts to **restore IPv6 configuration when usable parameters already exist on the source system**.
-
-If a global IPv6 address and usable routing information are detected, the installer carries this configuration into the installed system.
-
-Implementation differs by target system:
-
-- Debian uses `/etc/network/interfaces`
-- Ubuntu uses `netplan`
-
-If the required IPv6 parameters are incomplete or unavailable, AutoLinux automatically falls back to IPv4-only networking.
+This design minimizes the risk of lockouts during automated reinstalls.
 
 ---
 
-## Legacy System Compatibility
+Network Performance Optimization
 
-AutoLinux detects certain end-of-life systems such as CentOS 7 and automatically enables CentOS Vault repositories so required packages can still be installed.
+AutoLinux automatically enables modern TCP tuning:
 
-This improves reliability when migrating older servers to modern distributions.
+• FQ queue discipline  
+• TCP BBR congestion control  
+
+These settings are widely used in high-performance networking environments.
+
+---
+
+Best-Effort IPv6 Restoration
+
+AutoLinux does not automatically generate IPv6 configurations.
+
+Instead, it restores IPv6 only when valid parameters already exist on the source system.
+
+If IPv6 address, prefix, and gateway are detectable, the configuration will be restored in the installed system.
+
+Otherwise the installer falls back to IPv4-only networking.
+
+---
+
+Legacy System Compatibility
+
+AutoLinux detects certain end-of-life systems such as CentOS 7 and automatically enables Vault repositories to ensure required packages remain installable.
 
 ---
 
 # 📂 Supported Operating Systems
 
-## Target Installation Systems
+Target Installation Systems
 
-### Debian
+Debian
 
-- Debian 13 (Trixie)
-- Debian 12 (Bookworm) — Default
-- Debian 11 (Bullseye)
+Debian 13 (Trixie)  
+Debian 12 (Bookworm) — Default  
+Debian 11 (Bullseye)
 
-### Ubuntu
+Ubuntu
 
-- Ubuntu 24.04 LTS (Noble) — Default
-- Ubuntu 22.04 LTS (Jammy)
+Ubuntu 24.04 LTS (Noble) — Default  
+Ubuntu 22.04 LTS (Jammy)
 
-## Supported Source Systems
+---
+
+Supported Source Systems
 
 The script can be launched from:
 
-- Debian
-- Ubuntu
-- CentOS 7
-- AlmaLinux
-- Rocky Linux
-- Fedora
+Debian  
+Ubuntu  
+CentOS 7  
+AlmaLinux  
+Rocky Linux  
+Fedora  
 
 ---
 
@@ -257,114 +248,108 @@ The script can be launched from:
 
 AutoLinux uses different installation strategies depending on the target operating system.
 
-## Debian Installation Path
+---
+
+Debian Installation Path
 
 Debian installations use the official Debian network installer.
 
 Process:
 
-1. download official netboot installer
-2. inject automated preseed configuration
-3. inject post-install configuration script
-4. create temporary GRUB boot entry
-5. reboot directly into installer
-6. perform automated installation
+1. download official netboot installer  
+2. inject automated preseed configuration  
+3. inject post-install configuration script  
+4. create temporary GRUB boot entry  
+5. reboot into the installer  
+6. perform automated installation  
 
-This preserves Debian’s official installer behavior while enabling fully automated provisioning.
+This preserves Debian’s standard installer workflow while enabling full automation.
 
 ---
 
-## Ubuntu Installation Path
+Ubuntu Installation Path
 
-Ubuntu installations use official Ubuntu cloud images.
+Ubuntu installations use official cloud images.
 
 Process:
 
-1. download official Ubuntu cloud image
-2. attach image using qemu-nbd
-3. mount filesystem directly
-4. inject configuration into filesystem
-5. optionally inject IPv6 configuration when detectable
-6. seed cloud-init metadata for disk expansion
-7. write image directly to target disk
+1. download Ubuntu cloud image  
+2. attach image using qemu-nbd  
+3. mount filesystem offline  
+4. inject configuration and network settings  
+5. seed cloud-init metadata  
+6. write image directly to target disk  
 
-This approach removes the need for a traditional installer and dramatically reduces deployment time.
+This approach dramatically reduces installation time.
 
 ---
 
 # 🌐 Network Provisioning Model
 
-AutoLinux follows a deterministic network configuration model.
+AutoLinux uses a deterministic network configuration strategy.
 
 Deployment behavior:
 
-- IPv4 is always provisioned using static configuration
-- IPv6 is only restored when valid parameters already exist
+IPv4 is always provisioned using static configuration.
+
+IPv6 is restored only when valid parameters already exist.
 
 Network logic:
 
-    Host Network State
-            │
-            ▼
-    IPv4 detected → static IPv4 provisioning
-            │
-            ▼
-    IPv6 detected?
-        │
-        ├─ yes → attempt IPv6 restoration
-        │
-        └─ no → IPv4-only configuration
+Host network detected  
+→ configure static IPv4
 
-This design prevents incorrect IPv6 provisioning on environments where IPv6 routing is incomplete or provider-managed.
+IPv6 detected  
+→ attempt IPv6 restoration
+
+IPv6 not detected  
+→ IPv4-only configuration
+
+This design prevents misconfigured IPv6 networking in environments where providers manage routing externally.
 
 ---
 
 # 🔄 Installation Flow
 
-    Current Linux System
-            │
-            ▼
-    AutoLinux Script Execution
-            │
-            ▼
-    Detect Disk and Network
-            │
-            ▼
-    Select Target OS
-            │
-      ┌─────┴─────┐
-      ▼           ▼
-    Debian      Ubuntu
-    Netboot     Cloud Image
-    Installer   Deployment
-      ▼           ▼
-    Automated System Setup
-            │
-            ▼
-    Reboot into Installed System
+Current Linux System  
+↓  
+AutoLinux Script Execution  
+↓  
+Detect Disk and Network  
+↓  
+Select Target OS  
+↓  
+
+Debian path → Netboot installer  
+Ubuntu path → Cloud image deployment  
+
+↓  
+Automated system setup  
+↓  
+Reboot into installed system
 
 ---
 
 # 🛠 Advanced Parameters
 
-- `-d [11|12|13]`  
-  Install Debian with the specified version.
+-d [11|12|13]  
+Install Debian with specified version.
 
-- `-u [22|24]`  
-  Install Ubuntu with the specified version.
+-u [22|24]  
+Install Ubuntu with specified version.
 
-- `-p password`  
-  Set root password.
+-p password  
+Set root password.
 
-- `-port / --port N`  
-  Set SSH port (1–65535).
+-port or --port N  
+Set SSH port.
 
-- `-h / --help`  
-  Show help information.
+-h or --help  
+Show help message.
 
 Example:
 
-    bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -u 24 -p "SecurePassword" --port 2222
+bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -u 24 -p "SecurePassword" --port 2222
 
 ---
 
@@ -372,39 +357,54 @@ Example:
 
 If no parameters are provided, AutoLinux uses:
 
-| Property | Default |
-|---|---|
-| OS | Debian 12 |
-| Username | root |
-| Password | Harry888 |
-| SSH Port | 22 |
+OS: Debian 12  
+Username: root  
+Password: Harry888  
+SSH Port: 22
 
 You should change the password immediately after login.
 
 ---
 
-# Notes
+# 🧪 Tested Environments
 
-- Installation is IPv4-first across all targets.
-- IPv6 configuration is restored only when valid parameters are detectable.
-- Static DNS servers `8.8.8.8` and `1.1.1.1` are written into generated network configuration.
-- Debian networking uses `/etc/network/interfaces`.
-- Ubuntu networking uses `netplan`.
-- Disk detection is optimized for common single-disk VPS environments.
-- Ubuntu cloud-image deployments include automatic first-boot disk expansion commands.
+AutoLinux has been validated in typical server and VPS environments including:
+
+KVM virtual machines  
+common cloud VPS providers  
+single-disk virtual servers  
+BIOS and UEFI boot environments  
+IPv4-only VPS networks  
+dual-stack VPS networks  
+
+The script is primarily optimized for single-disk VPS deployments.
+
+---
+
+# 📌 Operational Notes
+
+AutoLinux is designed around common VPS assumptions:
+
+• single primary system disk  
+• one active primary network interface  
+• IPv4 connectivity available during installation  
+
+While the script may function in more complex environments, such configurations are outside the primary design scope.
+
+Operators deploying on multi-disk or complex networking setups should review disk and network detection behavior before use.
 
 ---
 
 # 🔒 Security Notes
 
-AutoLinux enables root login and password authentication to prevent lockout during automated reinstalls.
+AutoLinux enables root login and password authentication to avoid SSH lockouts during automated reinstall operations.
 
 After installation it is recommended to:
 
-- change the root password
-- configure SSH key authentication
-- disable password authentication if appropriate
-- restrict SSH exposure using firewall rules
+• change the root password  
+• configure SSH key authentication  
+• disable password authentication if appropriate  
+• restrict SSH access using firewall rules  
 
 ---
 
@@ -414,18 +414,18 @@ AutoLinux is not designed to be clever — it is designed to be reliable.
 
 The project prioritizes:
 
-- deterministic behavior
-- transparent execution
-- broad VPS compatibility
-- minimal assumptions
-- predictable installation flow
+deterministic behavior  
+transparent execution  
+broad VPS compatibility  
+minimal environmental assumptions  
+predictable installation flow  
 
 It intentionally avoids:
 
-- hidden automation
-- distribution-specific hacks
-- complex environment detection
-- unnecessary abstraction
+hidden automation  
+distribution-specific hacks  
+overly complex environment detection  
+unverified heuristics  
 
 The goal is simple:
 
