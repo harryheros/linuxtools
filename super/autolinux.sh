@@ -240,6 +240,7 @@ install_debian() {
 #!/bin/sh
 set -e
 sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config
 sed -i 's/#Port 22/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
 sed -i 's/^Port .*/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
 echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
@@ -309,7 +310,7 @@ EOF
 
     KERNEL_PATH="/boot/vmlinuz-debian${RELEASE}-autolinux"
     INITRD_PATH="/boot/initrd-debian${RELEASE}-autolinux.gz"
-    NET_APPEND="netcfg/disable_autoconfig=true netcfg/get_ipaddress=${V_IP} netcfg/get_netmask=${V_NETMASK} netcfg/get_gateway=${V_GATEWAY} netcfg/get_nameservers=8.8.8.8 netcfg/confirm_static=true"
+    NET_APPEND="netcfg/disable_autoconfig=true netcfg/get_ipaddress=${V_IP} netcfg/get_netmask=${V_NETMASK} netcfg/get_gateway=${V_GATEWAY} netcfg/get_nameservers=\"8.8.8.8 1.1.1.1\" netcfg/confirm_static=true"
     KERNEL_APPEND="auto=true priority=critical file=/preseed.cfg locale=en_US.UTF-8 keymap=us hostname=debian ${NET_APPEND} vga=788 --- quiet"
     GRUB_TITLE="AutoLinux-Debian${RELEASE}"
     UBUNTU_CLOUD=0
