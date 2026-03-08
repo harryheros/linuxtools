@@ -362,6 +362,16 @@ EOF
 
     # 4. Static netplan — match en* and eth* to cover any interface name
     rm -f "${ROOT_MNT}/etc/netplan/"*.yaml
+
+    # Build addresses list (IPv4 always, IPv6 if detected)
+    if [ -n "$V_IP6" ] && [ -n "$V_PREFIX6" ] && [ -n "$V_GATEWAY6" ]; then
+        NETPLAN_ADDRESSES="[${V_IP}/${V_PREFIX}, ${V_IP6}/${V_PREFIX6}]"
+        NETPLAN_ROUTES="[{to: default, via: ${V_GATEWAY}}, {to: \"::/0\", via: \"${V_GATEWAY6}\"}]"
+    else
+        NETPLAN_ADDRESSES="[${V_IP}/${V_PREFIX}]"
+        NETPLAN_ROUTES="[{to: default, via: ${V_GATEWAY}}]"
+    fi
+
     cat > "${ROOT_MNT}/etc/netplan/99-static-ip.yaml" <<EOF
 network:
   version: 2
@@ -371,17 +381,18 @@ network:
       match: {name: "en*"}
       dhcp4: false
       dhcp6: false
-      addresses: [${V_IP}/${V_PREFIX}]
-      routes: [{to: default, via: ${V_GATEWAY}}]
+      addresses: ${NETPLAN_ADDRESSES}
+      routes: ${NETPLAN_ROUTES}
       nameservers: {addresses: [8.8.8.8, 1.1.1.1]}
     all-eth:
       match: {name: "eth*"}
       dhcp4: false
       dhcp6: false
-      addresses: [${V_IP}/${V_PREFIX}]
-      routes: [{to: default, via: ${V_GATEWAY}}]
+      addresses: ${NETPLAN_ADDRESSES}
+      routes: ${NETPLAN_ROUTES}
       nameservers: {addresses: [8.8.8.8, 1.1.1.1]}
 EOF
+    chmod 600 "${ROOT_MNT}/etc/netplan/99-static-ip.yaml"
     chmod 600 "${ROOT_MNT}/etc/netplan/99-static-ip.yaml"
 
     # 5. Disable cloud-init network generation
