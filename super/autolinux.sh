@@ -152,6 +152,14 @@ fi
 
 echo -e "\n${BOLD}${CYAN}Step: Detecting environment and network...${NC}"
 
+# --- Cleanup trap (Ubuntu path) ---
+cleanup() {
+    umount /tmp/img_root_mnt 2>/dev/null || true
+    umount /tmp/efi_fix_mnt  2>/dev/null || true
+    qemu-nbd --disconnect /dev/nbd0 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
 # --- Disk Detection ---
 REAL_DISK=""
 if [ -d /sys/block ]; then
@@ -237,18 +245,16 @@ sed -i 's/^Port .*/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
 echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
 echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
 printf 'auto lo\niface lo inet loopback\n\n' > /etc/network/interfaces
-for iface in \$(ip -o link show | awk -F': ' '{print \$2}' | grep -v lo); do
-    printf "auto \$iface\nallow-hotplug \$iface\niface \$iface inet static\n"
-    printf "    address ${V_IP}\n    netmask ${V_NETMASK}\n    gateway ${V_GATEWAY}\n    dns-nameservers 8.8.8.8 1.1.1.1\n\n"
-    if [ -n "${V_IP6}" ] && [ -n "${V_PREFIX6}" ]; then
-        printf "iface \$iface inet6 static\n"
-        printf "    address ${V_IP6}\n    netmask ${V_PREFIX6}\n"
-        if [ -n "${V_GATEWAY6}" ]; then
-            printf "    gateway ${V_GATEWAY6}\n"
-        fi
-        printf "\n"
+printf "auto ${INTERFACE}\nallow-hotplug ${INTERFACE}\niface ${INTERFACE} inet static\n"
+printf "    address ${V_IP}\n    netmask ${V_NETMASK}\n    gateway ${V_GATEWAY}\n    dns-nameservers 8.8.8.8 1.1.1.1\n\n" >> /etc/network/interfaces
+if [ -n "${V_IP6}" ] && [ -n "${V_PREFIX6}" ]; then
+    printf "iface ${INTERFACE} inet6 static\n" >> /etc/network/interfaces
+    printf "    address ${V_IP6}\n    netmask ${V_PREFIX6}\n" >> /etc/network/interfaces
+    if [ -n "${V_GATEWAY6}" ]; then
+        printf "    gateway ${V_GATEWAY6}\n" >> /etc/network/interfaces
     fi
-done >> /etc/network/interfaces
+    printf "\n" >> /etc/network/interfaces
+fi
 POSTINSTALL
     chmod +x "${WORKDIR}/post-install.sh"
 
@@ -399,7 +405,15 @@ EOF
     mkdir -p "${ROOT_MNT}/etc/cloud/cloud.cfg.d"
     echo "network: {config: disabled}" > "${ROOT_MNT}/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"
 
-    # 6. Cloud-init seed — only growpart/resize
+    # 6. Cloud-init seed — only growpart/resize (dynamic disk name)
+    REAL_DISK_BASE=$(basename "${REAL_DISK}")
+    if echo "${REAL_DISK_BASE}" | grep -q "nvme"; then
+        REAL_PART="${REAL_DISK}p1"
+        REAL_PART_NUM="1"
+    else
+        REAL_PART="${REAL_DISK}1"
+        REAL_PART_NUM="1"
+    fi
     mkdir -p "${ROOT_MNT}/var/lib/cloud/seed/nocloud"
     cat > "${ROOT_MNT}/var/lib/cloud/seed/nocloud/meta-data" <<EOF
 instance-id: i-$(date +%s)
@@ -408,8 +422,8 @@ EOF
     cat > "${ROOT_MNT}/var/lib/cloud/seed/nocloud/user-data" <<EOF
 #cloud-config
 runcmd:
-  - growpart /dev/sda 1 || true
-  - resize2fs /dev/sda1 || true
+  - growpart ${REAL_DISK} ${REAL_PART_NUM} || true
+  - resize2fs ${REAL_PART} || true
 EOF
 
     sync
