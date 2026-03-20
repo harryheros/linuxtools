@@ -10,6 +10,8 @@ AutoLinux is a high-performance Linux provisioning and reinstall tool designed f
 
 It provides a deterministic and automated way to reinstall Debian or Ubuntu systems using official upstream resources, without requiring provider rescue environments.
 
+> This tool is intended for use on systems owned or managed by the operator.
+
 ---
 
 # 📑 Table of Contents
@@ -50,17 +52,33 @@ The tool is designed to be transparent, predictable, and suitable for operators 
 
 Run as root on the target system.
 
+You may review the script before execution if desired:
+
+https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh
+
+---
+
 Default installation (Debian 12):
 
-bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh)
+    curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh | bash
+
+---
 
 Install Debian 13 with custom SSH port and password:
 
-bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -d 13 -p "YourPassword" --port 2222
+    curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh | bash -s -- -d 13 -p "YourPassword" --port 2222
+
+---
 
 Install Ubuntu 24.04:
 
-bash <(curl -sSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh) -u 24
+    curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh | bash -s -- -u 24
+
+---
+
+Install Ubuntu 22.04:
+
+    curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh | bash -s -- -u 22
 
 ---
 
@@ -142,7 +160,7 @@ Automated SSH Access Setup
 
 AutoLinux configures SSH access during installation to ensure remote accessibility after provisioning.
 
-Operators can define authentication parameters during execution.
+Authentication parameters are defined explicitly by the operator.
 
 ---
 
@@ -253,22 +271,30 @@ Show help
 
 ---
 
+Example usage:
+
+    curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/super/autolinux.sh | bash -s -- -u 24 -p "SecurePassword" --port 2222
+
+---
+
 # 🔐 Security Model
 
-AutoLinux is designed for controlled environments where the operator has full administrative access.
+AutoLinux is designed for controlled environments where the operator has administrative access to the target system.
 
-During installation:
+Important notes:
 
-• remote access is enabled  
-• authentication parameters are configurable  
 • no credentials are embedded in the script  
+• authentication parameters must be provided explicitly  
+• the script operates only on the target system  
+
+---
 
 Post-installation recommendations:
 
 • change credentials immediately  
-• enable SSH key authentication  
-• restrict SSH access via firewall  
+• configure SSH key authentication  
 • disable password authentication if required  
+• restrict SSH access using firewall rules  
 
 ---
 
