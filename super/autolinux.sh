@@ -22,9 +22,13 @@ BOLD='\033[1m'
 OS_TYPE="debian"
 RELEASE=""
 SSH_PORT="22"
-ROOT_PASS="Harry888"
+ROOT_PASS=""
 VERSION="2.0.1"
-DEFAULT_PASSWORD_USED=1
+PASSWORD_WAS_GENERATED=0
+
+generate_random_password() {
+    tr -dc 'A-Za-z0-9' </dev/urandom | head -c 14
+}
 
 # --- Help ---
 show_help() {
@@ -35,16 +39,20 @@ show_help() {
     echo ""
     echo -e "${BOLD}Options:${NC}"
     echo -e "  ${YELLOW}-d [11|12|13]${NC}       Install Debian (default: 12)"
-    echo -e "  ${YELLOW}-u [22|24]${NC}           Install Ubuntu (default: 24)"
-    echo -e "  ${YELLOW}-p password${NC}          Set root password (default: Harry888)"
-    echo -e "  ${YELLOW}-port / --port N${NC}     Set SSH port (default: 22)"
-    echo -e "  ${YELLOW}-h / --help${NC}          Show this help"
+    echo -e "  ${YELLOW}-u [22|24]${NC}          Install Ubuntu (default: 24)"
+    echo -e "  ${YELLOW}-p password${NC}         Set root password (optional)"
+    echo -e "  ${YELLOW}-port / --port N${NC}    Set SSH port (default: 22)"
+    echo -e "  ${YELLOW}-h / --help${NC}         Show this help"
+    echo ""
+    echo -e "${BOLD}Notes:${NC}"
+    echo -e "  • If ${YELLOW}-p${NC} is not provided, a random root password will be generated."
+    echo -e "  • The generated password will be shown before reboot."
     echo ""
     echo -e "${BOLD}Examples:${NC}"
-    echo -e "  bash autolinux.sh                  # Debian 12 (default)"
-    echo -e "  bash autolinux.sh -d 13            # Debian 13"
-    echo -e "  bash autolinux.sh -u               # Ubuntu 24.04"
-    echo -e "  bash autolinux.sh -u 22            # Ubuntu 22.04"
+    echo -e "  bash autolinux.sh"
+    echo -e "  bash autolinux.sh -d 13"
+    echo -e "  bash autolinux.sh -u"
+    echo -e "  bash autolinux.sh -u 22"
     echo -e "  bash autolinux.sh -u 24 -p mypass --port 2222"
 }
 
@@ -61,8 +69,10 @@ while [[ "$#" -gt 0 ]]; do
             DEBIAN_SET=1; OS_TYPE="debian"
             if [[ "$2" =~ ^(11|12|13)$ ]]; then RELEASE="$2"; shift 2
             elif [[ -z "$2" || "$2" == -* ]]; then RELEASE="12"; shift 1
-            else echo -e "${RED}Error: Unsupported Debian version '$2'. (Available: 11, 12, 13)${NC}"; exit 1
-            fi ;;
+            else
+                echo -e "${RED}Error: Unsupported Debian version '$2'. (Available: 11, 12, 13)${NC}"; exit 1
+            fi
+            ;;
         -u)
             if [ "$DEBIAN_SET" -eq 1 ]; then
                 echo -e "${RED}Error: Cannot use -d and -u together.${NC}"; exit 1
@@ -70,32 +80,54 @@ while [[ "$#" -gt 0 ]]; do
             UBUNTU_SET=1; OS_TYPE="ubuntu"
             if [[ "$2" =~ ^(22|24)$ ]]; then RELEASE="$2"; shift 2
             elif [[ -z "$2" || "$2" == -* ]]; then RELEASE="24"; shift 1
-            else echo -e "${RED}Error: Unsupported Ubuntu version '$2'. (Available: 22, 24)${NC}"; exit 1
-            fi ;;
+            else
+                echo -e "${RED}Error: Unsupported Ubuntu version '$2'. (Available: 22, 24)${NC}"; exit 1
+            fi
+            ;;
         -p)
-            if [ -z "$2" ]; then echo -e "${RED}Error: Password cannot be empty.${NC}"; exit 1; fi
-            ROOT_PASS="$2"; DEFAULT_PASSWORD_USED=0; shift 2 ;;
+            if [ -z "$2" ] || [ "$2" == -* ]; then
+                echo -e "${RED}Error: Password cannot be empty.${NC}"; exit 1
+            fi
+            ROOT_PASS="$2"; shift 2
+            ;;
         -port|--port)
             if [[ "$2" =~ ^[0-9]+$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 65535 ]; then
                 SSH_PORT="$2"; shift 2
-            else echo -e "${RED}Error: Invalid port number '$2' (1-65535)${NC}"; exit 1
-            fi ;;
-        -h|--help) show_help; exit 0 ;;
+            else
+                echo -e "${RED}Error: Invalid port number '$2' (1-65535)${NC}"; exit 1
+            fi
+            ;;
+        -h|--help)
+            show_help; exit 0
+            ;;
         *)
             echo -e "${RED}Error: Invalid option '$1'${NC}"
             echo -e "${YELLOW}Hint: Use -d for Debian, -u for Ubuntu, -p for password, --port for SSH port.${NC}"
-            exit 1 ;;
+            exit 1
+            ;;
     esac
 done
 
 if [ "$OS_TYPE" = "debian" ] && [ -z "$RELEASE" ]; then RELEASE="12"; fi
 if [ "$OS_TYPE" = "ubuntu" ] && [ -z "$RELEASE" ]; then RELEASE="24"; fi
 
+if [ -z "$ROOT_PASS" ]; then
+    ROOT_PASS="$(generate_random_password)"
+    PASSWORD_WAS_GENERATED=1
+fi
+
 clear
 echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
 echo -e "${GREEN}${BOLD}            AutoLinux Unified Installer v${VERSION}${NC}"
 echo -e "${GREEN}        Copyright (C) 2026 HarryLinux Tools / Harry${NC}"
 echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
+
+if [ "$PASSWORD_WAS_GENERATED" -eq 1 ]; then
+    echo -e "\n${YELLOW}${BOLD}No root password was provided.${NC}"
+    echo -e "${YELLOW}A random password has been generated for this installation:${NC}"
+    echo -e "${GREEN}${BOLD}${ROOT_PASS}${NC}"
+    echo -e "${RED}${BOLD}Please save this password now. It will be required after installation.${NC}"
+fi
 
 echo -e "\n${BOLD}${CYAN}Step: Pre-installing essential tools...${NC}"
 export DEBIAN_FRONTEND=noninteractive
@@ -215,7 +247,7 @@ if [ "$OS_TYPE" = "debian" ]; then
 else
     case "$RELEASE" in
         "22") REL_NAME="jammy"; FULL_VER="22.04" ;;
-        *)    REL_NAME="noble"; FULL_VER="24.04"  ;;
+        *)    REL_NAME="noble"; FULL_VER="24.04" ;;
     esac
     DISPLAY_NAME="Ubuntu ${FULL_VER} (${REL_NAME})"
 fi
@@ -476,8 +508,7 @@ fi
 if [ "$OS_TYPE" = "debian" ]; then
     echo -e "\n${BOLD}${CYAN}Step: Patching GRUB bootloader (Debian)...${NC}"
 
-    BOOT_UUID=$(/usr/sbin/grub-probe --target=fs_uuid /boot 2>/dev/null || \
-                grub-probe --target=fs_uuid /boot)
+    BOOT_UUID=$(/usr/sbin/grub-probe --target=fs_uuid /boot 2>/dev/null || grub-probe --target=fs_uuid /boot)
     KERN_BN="$(basename "${KERNEL_PATH}")"
     INIT_BN="$(basename "${INITRD_PATH}")"
     cat > /etc/grub.d/40_custom <<EOF
@@ -517,12 +548,18 @@ echo -e "  IP       : ${YELLOW}${V_IP}/${V_PREFIX}${NC}"
 echo -e "  Gateway  : ${YELLOW}${V_GATEWAY}${NC}"
 [ -n "$V_IP6" ] && echo -e "  IPv6     : ${YELLOW}${V_IP6}/${V_PREFIX6}${NC}"
 echo -e "  SSH Port : ${YELLOW}${SSH_PORT}${NC}"
-if [ "$DEFAULT_PASSWORD_USED" -eq 1 ]; then
-    echo -e "  Password : ${RED}Harry888 (default — please change after login!)${NC}"
+
+if [ "$PASSWORD_WAS_GENERATED" -eq 1 ]; then
+    echo -e "  Password : ${YELLOW}${ROOT_PASS}${NC} ${RED}(generated automatically — save it now)${NC}"
 else
     echo -e "  Password : ${GREEN}(custom password set)${NC}"
 fi
+
 echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌${NC}"
+
+if [ "$PASSWORD_WAS_GENERATED" -eq 1 ]; then
+    echo -e "\n${RED}${BOLD}IMPORTANT: Save the generated root password before reboot:${NC} ${YELLOW}${ROOT_PASS}${NC}"
+fi
 
 echo -ne "\nRebooting in "
 for i in {10..1}; do echo -n "$i... "; sleep 1; done
