@@ -50,36 +50,56 @@ The tool is designed to be transparent, predictable, and suitable for operators 
 
 # ⚡ Quick Start
 
+> Requires bash (process substitution support).
+
 Run as root on the target system.
 
 You may review the script before execution:
+
 ```bash
-https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh
+curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh
 ```
+
 ---
 
-Default installation (Debian 12):
+## Default installation (Debian 12)
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh)
 ```
+
 ---
 
-Install Debian 13 with custom SSH port and password:
+## Install Debian 13 with custom SSH port and password
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh) -d 13 -p "YourPassword" --port 2222
 ```
+
 ---
 
-Install Ubuntu 24.04:
+## Install Ubuntu 24.04
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh) -u 24
 ```
+
 ---
 
-Install Ubuntu 22.04:
+## Install Ubuntu 22.04
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh) -u 22
 ```
+
+---
+
+## Full example
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh) -u 24 -p "SecurePassword" --port 2222
+```
+
 ---
 
 ⚠ DATA LOSS WARNING
@@ -260,21 +280,23 @@ Install Debian with specified version
 -u [22|24]  
 Install Ubuntu with specified version  
 
--p password  
-Set root password (required)  
+-p, --password PASSWORD  
+Set root password  
 
---port N  
+-P, --port PORT  
 Set SSH port  
 
--h  
+-h, --help  
 Show help  
 
 ---
 
-Example usage:
+## Example usage
+
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh) -u 24 -p "SecurePassword" --port 2222
+bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/LinuxTools/main/os/autolinux.sh) -u 24 -p "SecurePassword" -P 2222
 ```
+
 ---
 
 # 🔐 Security Model
