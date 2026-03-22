@@ -50,51 +50,61 @@ The tool is designed to be transparent, predictable, and suitable for operators 
 
 # ⚡ Quick Start
 
-> Requires bash (process substitution support).
-
+> Requires bash (process substitution support).  
 Run as root on the target system.
 
-You may review the script before execution:
+### Review script before execution
 
+```bash
 curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtool/main/os/autolinux.sh
+```
 
 ---
 
 ## Default installation (Debian 12)
 
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtool/main/os/autolinux.sh)
+```
 
 ---
 
 ## Install Debian 13 with custom SSH port and password
 
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtool/main/os/autolinux.sh) -d 13 -p "YourPassword" --port 2222
+```
 
 ---
 
 ## Install Ubuntu 24.04
 
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtool/main/os/autolinux.sh) -u 24
+```
 
 ---
 
 ## Install Ubuntu 22.04
 
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtool/main/os/autolinux.sh) -u 22
+```
 
 ---
 
 ## Full example
 
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtool/main/os/autolinux.sh) -u 24 -p "SecurePassword" --port 2222
+```
 
 ---
 
 ⚠ DATA LOSS WARNING
 
-This tool will completely erase the primary system disk and reinstall the operating system.
-
-All existing data will be permanently destroyed.
+This tool will completely erase the primary system disk and reinstall the operating system.  
+All existing data will be permanently destroyed.  
 
 Use only on systems you own or are authorized to manage.
 
@@ -102,23 +112,23 @@ Use only on systems you own or are authorized to manage.
 
 # ✨ Key Features
 
-Unified Debian and Ubuntu Installer
+Unified Debian and Ubuntu Installer  
 
-AutoLinux supports both Debian and Ubuntu installation workflows through a single interface.
+AutoLinux supports both Debian and Ubuntu installation workflows through a single interface.  
 
 Debian uses the official network installer, while Ubuntu uses official cloud images for faster deployment.
 
 ---
 
-BIOS and UEFI Compatibility
+BIOS and UEFI Compatibility  
 
-Works across both legacy BIOS and modern UEFI systems.
+Works across both legacy BIOS and modern UEFI systems.  
 
 Bootloader configuration is handled automatically.
 
 ---
 
-Cross-Distribution Execution
+Cross-Distribution Execution  
 
 Can be executed from multiple Linux distributions, including:
 
@@ -131,7 +141,7 @@ Fedora
 
 ---
 
-Official Upstream Sources
+Official Upstream Sources  
 
 All installation assets are downloaded from official upstream sources:
 
@@ -142,7 +152,7 @@ No modified images or third-party mirrors are used.
 
 ---
 
-Deterministic Deployment Model
+Deterministic Deployment Model  
 
 AutoLinux prioritizes predictable execution:
 
@@ -152,7 +162,7 @@ AutoLinux prioritizes predictable execution:
 
 ---
 
-High-Speed Ubuntu Deployment
+High-Speed Ubuntu Deployment  
 
 Ubuntu installation uses cloud images:
 
@@ -160,32 +170,24 @@ Ubuntu installation uses cloud images:
 • modify filesystem offline  
 • write directly to disk  
 
-This significantly reduces installation time.
-
 ---
 
-Automated SSH Access Setup
+Automated SSH Access Setup  
 
 AutoLinux configures SSH access during installation to ensure remote accessibility after provisioning.
 
-Authentication parameters are defined explicitly by the operator.
-
 ---
 
-Network Optimization
-
-Applies modern TCP settings:
+Network Optimization  
 
 • FQ queue discipline  
 • TCP BBR congestion control  
 
 ---
 
-IPv6 Handling
+IPv6 Handling  
 
-IPv6 is restored only if valid parameters are detected from the source system.
-
-Otherwise, deployment falls back to IPv4-only networking.
+IPv6 is restored only if valid parameters are detected.  
 
 ---
 
@@ -202,147 +204,53 @@ Ubuntu 22.04 LTS (Jammy)
 
 ---
 
-Source Systems:
-
-Debian  
-Ubuntu  
-CentOS 7  
-AlmaLinux  
-Rocky Linux  
-Fedora  
-
----
-
 # 🏗 Installation Architecture
 
 Debian Path:
 
 1. download official netboot installer  
 2. inject automated configuration  
-3. create temporary boot entry  
-4. reboot into installer  
-5. complete unattended installation  
-
----
+3. reboot into installer  
 
 Ubuntu Path:
 
 1. download official cloud image  
-2. mount image via qemu-nbd  
-3. inject configuration  
-4. write image to disk  
-
----
-
-# 🌐 Network Provisioning Model
-
-AutoLinux uses a deterministic approach:
-
-IPv4 is always configured statically.
-
-IPv6 is restored only when valid parameters exist.
-
----
-
-# 🔄 Installation Flow
-
-Current System  
-↓  
-AutoLinux Execution  
-↓  
-Detect Disk & Network  
-↓  
-Select Target OS  
-↓  
-Deploy System  
-↓  
-Reboot  
+2. mount via qemu-nbd  
+3. write to disk  
 
 ---
 
 # 🛠 Advanced Parameters
 
 -d [11|12|13]  
-Install Debian with specified version  
-
 -u [22|24]  
-Install Ubuntu with specified version  
-
 -p password  
-Set root password  
-
 --port N  
-Set SSH port  
-
 -h, --help  
-Show help  
 
 ---
 
 ## Example usage
 
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtool/main/os/autolinux.sh) -u 24 -p "SecurePassword" --port 2222
+```
 
 ---
 
 # 🔐 Security Model
 
-AutoLinux is designed for controlled environments where the operator has administrative access to the target system.
-
-Important notes:
-
-• no credentials are embedded in the script  
-• authentication parameters must be provided explicitly  
-• the script operates only on the target system  
-
----
-
-Post-installation recommendations:
-
-• change credentials immediately  
-• configure SSH key authentication  
-• disable password authentication if required  
-• restrict SSH access using firewall rules  
+• no embedded credentials  
+• operator-controlled execution  
+• local system only  
 
 ---
 
 # 🧪 Tested Environments
 
-KVM virtual machines  
-cloud VPS providers  
-single-disk servers  
-BIOS and UEFI systems  
-IPv4-only environments  
-dual-stack environments  
-
----
-
-# 📌 Operational Notes
-
-AutoLinux assumes:
-
-• single primary disk  
-• one active network interface  
-• working IPv4 connectivity  
-
-More complex environments may require manual verification.
-
----
-
-# 🏆 Design Philosophy
-
-AutoLinux prioritizes:
-
-deterministic behavior  
-transparent execution  
-broad compatibility  
-minimal assumptions  
-
-It avoids:
-
-hidden automation  
-environment-specific hacks  
-overly complex detection logic  
+KVM  
+cloud VPS  
+BIOS / UEFI  
 
 ---
 
@@ -353,4 +261,4 @@ Author: Harry
 Repository:  
 https://github.com/harryheros/linuxtool  
 
-Licensed under the GNU General Public License v3.0 (GPLv3).
+GPLv3
