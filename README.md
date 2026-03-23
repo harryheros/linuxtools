@@ -1,4 +1,4 @@
-# 🚀 AutoLinux v2.0.1 — Unified Linux Provisioning & Reinstall Tool
+# 🚀 AutoLinux v2.0.2 — Unified Linux Provisioning & Reinstall Tool
 
 ![Version](https://img.shields.io/badge/version-2.0.1-green.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-blue.svg)
