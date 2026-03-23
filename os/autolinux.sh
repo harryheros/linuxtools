@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Project: AutoLinux - Unified Linux Auto-Installer
-# Version: 2.0.1
+# Version: 2.0.2
 # Description: High-performance, BIOS + UEFI compatible automated network
 #              installer for Debian and Ubuntu systems.
 #
@@ -23,7 +23,7 @@ OS_TYPE="debian"
 RELEASE=""
 SSH_PORT="22"
 ROOT_PASS=""
-VERSION="2.0.1"
+VERSION="2.0.3"
 PASSWORD_WAS_GENERATED=0
 
 generate_random_password() {
@@ -271,23 +271,64 @@ install_debian() {
     cat > "${WORKDIR}/post-install.sh" <<POSTINSTALL
 #!/bin/sh
 set -e
+
+# --- SSH config ---
 sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config
 sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config
 sed -i 's/#Port 22/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
 sed -i 's/^Port .*/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
+
+# --- BBR ---
 echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
 echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
-printf 'auto lo\niface lo inet loopback\n\n' > /etc/network/interfaces
-printf "auto ${INTERFACE}\nallow-hotplug ${INTERFACE}\niface ${INTERFACE} inet static\n" >> /etc/network/interfaces
-printf "    address ${V_IP}\n    netmask ${V_NETMASK}\n    gateway ${V_GATEWAY}\n    dns-nameservers 8.8.8.8 1.1.1.1\n\n" >> /etc/network/interfaces
-if [ -n "${V_IP6}" ] && [ -n "${V_PREFIX6}" ]; then
-    printf "iface ${INTERFACE} inet6 static\n" >> /etc/network/interfaces
-    printf "    address ${V_IP6}\n    netmask ${V_PREFIX6}\n" >> /etc/network/interfaces
-    if [ -n "${V_GATEWAY6}" ]; then
-        printf "    gateway ${V_GATEWAY6}\n" >> /etc/network/interfaces
-    fi
-    printf "\n" >> /etc/network/interfaces
-fi
+
+# --- Network: use systemd-networkd with wildcard match ---
+# Matches eth0, ens18, enp3s0, etc. regardless of naming scheme
+mkdir -p /etc/systemd/network
+cat > /etc/systemd/network/10-static.network <<EOF
+[Match]
+Name=e*
+
+[Network]
+Address=${V_IP}/${V_PREFIX}
+Gateway=${V_GATEWAY}
+DNS=8.8.8.8
+DNS=1.1.1.1
+EOF
+
+$(if [ -n "${V_IP6}" ] && [ -n "${V_PREFIX6}" ]; then
+cat <<IPV6BLOCK
+cat >> /etc/systemd/network/10-static.network <<EOF2
+
+[Address]
+Address=${V_IP6}/${V_PREFIX6}
+EOF2
+$(if [ -n "${V_GATEWAY6}" ]; then
+cat <<GW6BLOCK
+cat >> /etc/systemd/network/10-static.network <<EOF3
+
+[Route]
+Gateway=${V_GATEWAY6}
+Destination=::/0
+EOF3
+GW6BLOCK
+fi)
+IPV6BLOCK
+fi)
+
+# Enable systemd-networkd, disable legacy networking
+systemctl enable systemd-networkd
+systemctl disable networking 2>/dev/null || true
+
+# Disable /etc/network/interfaces to avoid conflict
+printf '# Managed by systemd-networkd\n# See /etc/systemd/network/\n' > /etc/network/interfaces
+
+# --- Force legacy NIC naming (eth0) for maximum VPS compatibility ---
+# Covers environments that don't ship net.ifnames=0 by default.
+# The systemd-networkd Name=e* wildcard above acts as fallback
+# in case this parameter is ignored by some hypervisors.
+sed -i 's/GRUB_CMDLINE_LINUX="\(.*\)"/GRUB_CMDLINE_LINUX="\1 net.ifnames=0 biosdevname=0"/' /etc/default/grub
+update-grub
 POSTINSTALL
     chmod +x "${WORKDIR}/post-install.sh"
 
@@ -399,7 +440,7 @@ net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 EOF
 
-    # 4. Static netplan — match en* and eth* to cover any interface name
+    # 4. Static netplan — single wildcard rule covers eth0, ens18, enp3s0, etc.
     rm -f "${ROOT_MNT}/etc/netplan/"*.yaml
 
     # Build addresses list (IPv4 always, IPv6 if detected)
@@ -416,15 +457,9 @@ network:
   version: 2
   renderer: networkd
   ethernets:
-    all-en:
-      match: {name: "en*"}
-      dhcp4: false
-      dhcp6: false
-      addresses: ${NETPLAN_ADDRESSES}
-      routes: ${NETPLAN_ROUTES}
-      nameservers: {addresses: [8.8.8.8, 1.1.1.1]}
-    all-eth:
-      match: {name: "eth*"}
+    all-interfaces:
+      match:
+        name: "e*"
       dhcp4: false
       dhcp6: false
       addresses: ${NETPLAN_ADDRESSES}
@@ -539,9 +574,9 @@ fi
 # ==============================================================================
 # SUMMARY
 # ==============================================================================
-echo -e "\n${CYAN}◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎${NC}"
+echo -e "\n${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
 echo -e "${GREEN}${BOLD}                 AutoLinux Installation Summary${NC}"
-echo -e "${CYAN}◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎◎${NC}"
+echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
 echo -e "  OS       : ${YELLOW}${DISPLAY_NAME}${NC}"
 echo -e "  Disk     : ${YELLOW}${REAL_DISK}${NC}"
 echo -e "  IP       : ${YELLOW}${V_IP}/${V_PREFIX}${NC}"
@@ -555,7 +590,7 @@ else
     echo -e "  Password : ${GREEN}(custom password set)${NC}"
 fi
 
-echo -e "${CYAN}◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌◌${NC}"
+echo -e "${CYAN}❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊❊${NC}"
 
 if [ "$PASSWORD_WAS_GENERATED" -eq 1 ]; then
     echo -e "\n${RED}${BOLD}IMPORTANT: Save the generated root password before reboot:${NC} ${YELLOW}${ROOT_PASS}${NC}"
