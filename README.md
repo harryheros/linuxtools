@@ -1,6 +1,6 @@
 # 🚀 AutoLinux v2.0.5 — Unified Debian & Ubuntu Auto-Reinstall Tool
 
-![Version](https://img.shields.io/badge/version-2.0.3-green.svg)
+![Version](https://img.shields.io/badge/version-2.0.5-green.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-blue.svg)
 ![OS Support](https://img.shields.io/badge/OS-Debian%2011%20%7C%2012%20%7C%2013%20%7C%20Ubuntu%2022.04%20%7C%2024.04-red.svg)
 ![Platform](https://img.shields.io/badge/platform-BIOS%20%7C%20UEFI-orange.svg)
@@ -60,10 +60,18 @@ bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtools/main/o
 
 ---
 
+### Custom DNS example
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtools/main/os/autolinux.sh) -u 24 --dns "1.1.1.1 9.9.9.9"
+```
+
+---
+
 ### Full example
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtools/main/os/autolinux.sh) -u 24 -p "SecurePassword" --port 2222
+bash <(curl -fsSL https://raw.githubusercontent.com/harryheros/linuxtools/main/os/autolinux.sh) -u 24 -p "SecurePassword" --port 2222 --dns "8.8.8.8 1.1.1.1"
 ```
 
 ---
@@ -89,6 +97,9 @@ Use only on systems you own or are explicitly authorized to manage.
 - Automatic disk and network detection
 - Static IPv4 migration from current system
 - Optional IPv6 carry-over when detected
+- Debian networking configured with `systemd-networkd`
+- Ubuntu networking configured with `netplan` rendered by `systemd-networkd`
+- Custom DNS server support via `--dns`
 - Automatic SSH root login configuration
 - Custom SSH port support
 - Automatic random root password generation when `-p` is not provided
@@ -124,7 +135,7 @@ Use only on systems you own or are explicitly authorized to manage.
 1. Detect current disk and network configuration
 2. Download official Ubuntu cloud image
 3. Mount image through `qemu-nbd`
-4. Configure root password, SSH, sysctl, netplan, and cloud-init seed
+4. Configure root password, SSH, sysctl, netplan, cloud-init seed, and DNS
 5. Fix EFI fallback boot path if applicable
 6. Write image directly to target disk
 7. Force reboot into the new system
@@ -138,6 +149,7 @@ Use only on systems you own or are explicitly authorized to manage.
 -u [22|24]          Install Ubuntu (default: 24)
 -p password         Set root password (optional)
 -port / --port N    Set SSH port (default: 22)
+--dns "IP1 IP2"     Set DNS servers (default: 8.8.8.8 1.1.1.1)
 -h / --help         Show help
 ```
 
@@ -150,6 +162,18 @@ Use only on systems you own or are explicitly authorized to manage.
 - SSH is configured to allow root login and password authentication
 - The detected primary disk is used as the installation target
 - Current network settings are reused for static configuration
+- Default DNS servers are `8.8.8.8` and `1.1.1.1`
+- If `--dns` is provided, those DNS servers are written into the installed system
+
+---
+
+## 🌐 Network Configuration
+
+### Debian
+AutoLinux installs a static `systemd-networkd` configuration using the detected IPv4 settings, optional IPv6 settings, and the selected DNS servers.
+
+### Ubuntu
+AutoLinux installs a static `netplan` configuration rendered by `systemd-networkd`, disables cloud-init network generation, and writes the selected DNS servers into the installed system.
 
 ---
 
