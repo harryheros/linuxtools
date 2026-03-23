@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Project: AutoLinux - Unified Linux Auto-Installer
-# Version: 2.0.3
+# Version: 2.0.5
 # Description: High-performance, BIOS + UEFI compatible automated network
 #              installer for Debian and Ubuntu systems.
 #
@@ -23,8 +23,9 @@ OS_TYPE="debian"
 RELEASE=""
 SSH_PORT="22"
 ROOT_PASS=""
-VERSION="2.0.3"
+VERSION="2.0.5"
 PASSWORD_WAS_GENERATED=0
+DNS_SERVERS="8.8.8.8 1.1.1.1"
 
 generate_random_password() {
     tr -dc 'A-Za-z0-9' </dev/urandom | head -c 14
@@ -42,6 +43,7 @@ show_help() {
     echo -e "  ${YELLOW}-u [22|24]${NC}          Install Ubuntu (default: 24)"
     echo -e "  ${YELLOW}-p password${NC}         Set root password (optional)"
     echo -e "  ${YELLOW}-port / --port N${NC}    Set SSH port (default: 22)"
+    echo -e "  ${YELLOW}--dns \"IP1 IP2\"${NC}     Set DNS servers (default: 8.8.8.8 1.1.1.1)"
     echo -e "  ${YELLOW}-h / --help${NC}         Show this help"
     echo ""
     echo -e "${BOLD}Notes:${NC}"
