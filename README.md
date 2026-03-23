@@ -1,4 +1,4 @@
-# 🚀 AutoLinux v2.0.3 — Unified Debian & Ubuntu Auto-Reinstall Tool
+# 🚀 AutoLinux v2.0.5 — Unified Debian & Ubuntu Auto-Reinstall Tool
 
 ![Version](https://img.shields.io/badge/version-2.0.3-green.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-blue.svg)
