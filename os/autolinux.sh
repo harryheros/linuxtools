@@ -344,6 +344,9 @@ systemctl disable networking 2>/dev/null || true
 
 # Disable /etc/network/interfaces to avoid conflict
 printf '# Managed by systemd-networkd\n# See /etc/systemd/network/\n' > /etc/network/interfaces
+
+# Ensure all writes are flushed to disk before reboot
+sync
 POSTINSTALL
     chmod +x "${WORKDIR}/post-install.sh"
 
@@ -383,7 +386,8 @@ d-i finish-install/reboot_in_progress note
 d-i preseed/late_command string \
     cp /post-install.sh /target/tmp/post-install.sh; \
     in-target chmod +x /tmp/post-install.sh; \
-    in-target /tmp/post-install.sh
+    in-target /tmp/post-install.sh; \
+    sync; sleep 3
 EOF
 
     cd "$WORKDIR" && tar -xzf netboot.tar.gz
