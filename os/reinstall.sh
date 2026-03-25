@@ -6,7 +6,7 @@
 #              for Debian and Ubuntu systems on VPS and bare-metal servers.
 #
 # Author: Harry
-# GitHub: https://github.com/harryheros/OsNova
+# GitHub: https://github.com/harryheros/osnova
 # Copyright (C) 2026 Harry
 #
 # License: GNU General Public License v3.0 (GPL-3.0)
