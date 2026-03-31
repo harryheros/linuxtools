@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Project: OsNova - System Deployment & Reinstallation Engine
-# Version: 1.0.0
+# Version: 2.0.0
 # Description: BIOS + UEFI compatible automated network installer
 #              for Debian and Ubuntu systems on VPS and bare-metal servers.
 #
@@ -23,12 +23,13 @@ OS_TYPE="debian"
 RELEASE=""
 SSH_PORT="22"
 ROOT_PASS=""
-VERSION="1.0.0"
+VERSION="2.0.0"
 PASSWORD_WAS_GENERATED=0
 DNS_SERVERS="8.8.8.8 1.1.1.1"
+FORCE_MODE=0
 
 generate_random_password() {
-    tr -dc 'A-Za-z0-9' </dev/urandom | head -c 14
+    tr -dc 'A-Za-z0-9!@#%^*_+=' </dev/urandom | head -c 20
 }
 
 # --- Help ---
@@ -44,11 +45,14 @@ show_help() {
     echo -e "  ${YELLOW}-p PASSWORD${NC}             Set root password (optional)"
     echo -e "  ${YELLOW}-port PORT, --port PORT${NC} Set SSH port (default: 22)"
     echo -e "  ${YELLOW}--dns \"IP1 IP2\"${NC}         Set DNS servers (default: 8.8.8.8 1.1.1.1)"
+    echo -e "  ${YELLOW}-f, --force${NC}             Skip confirmation prompt"
+    echo -e "  ${YELLOW}-v, --version${NC}           Show version info"
     echo -e "  ${YELLOW}-h, --help${NC}              Show this help"
     echo ""
     echo -e "${BOLD}Notes:${NC}"
     echo -e "  • If ${YELLOW}-p${NC} is not provided, a random root password will be generated."
     echo -e "  • The generated password will be shown before reboot."
+    echo -e "  • Password may only contain: A-Z a-z 0-9 !@#%^*_+="
     echo ""
     echo -e "${BOLD}Examples:${NC}"
     echo -e "  bash reinstall.sh"
@@ -56,6 +60,51 @@ show_help() {
     echo -e "  bash reinstall.sh -u"
     echo -e "  bash reinstall.sh -u 22"
     echo -e "  bash reinstall.sh -u 24 -p mypass --port 2222"
+    echo -e "  bash reinstall.sh -u 24 -p mypass --port 2222 --force"
+}
+
+show_version() {
+    echo -e "${CYAN}OsNova v${VERSION}${NC}"
+    echo -e "GitHub: https://github.com/harryheros/osnova"
+    echo -e "Copyright (C) 2026 Harry"
+    echo -e "License: GPL-3.0"
+}
+
+# ==============================================================================
+# ENVIRONMENT PRE-CHECKS
+# ==============================================================================
+check_env() {
+    # 1. Root privilege check
+    if [ "$(id -u)" -ne 0 ]; then
+        echo -e "${RED}Error: This script must be run as root.${NC}"
+        echo -e "${YELLOW}Hint: Use 'sudo bash reinstall.sh' or run as root user.${NC}"
+        exit 1
+    fi
+
+    # 2. Architecture check (all images are amd64)
+    local arch
+    arch="$(uname -m)"
+    if [ "$arch" != "x86_64" ]; then
+        echo -e "${RED}Error: Unsupported architecture '${arch}'.${NC}"
+        echo -e "${YELLOW}OsNova only supports x86_64 (amd64) systems.${NC}"
+        exit 1
+    fi
+}
+
+# --- Password validation (safe characters only) ---
+validate_password() {
+    local pass="$1"
+    if [ -z "$pass" ]; then
+        echo -e "${RED}Error: Password cannot be empty.${NC}"; exit 1
+    fi
+    # Allow: A-Z a-z 0-9 and a safe set of symbols
+    # Reject anything that could break shell/heredoc/preseed: $ ` " ' \ spaces newlines ( ) { } | & ; < > ~
+    if ! echo "$pass" | grep -qP '^[A-Za-z0-9!@#%^*_+=.-]+$'; then
+        echo -e "${RED}Error: Password contains unsupported characters.${NC}"
+        echo -e "${YELLOW}Allowed characters: A-Z a-z 0-9 ! @ # % ^ * _ + = . -${NC}"
+        echo -e "${YELLOW}Characters NOT allowed: \$ \` \" ' \\ spaces ( ) { } | & ; < > ~${NC}"
+        exit 1
+    fi
 }
 
 # --- Argument Parsing ---
@@ -87,7 +136,7 @@ while [[ "$#" -gt 0 ]]; do
             fi
             ;;
         -p)
-            if [ -z "$2" ] || [ "$2" == -* ]; then
+            if [ -z "$2" ]; then
                 echo -e "${RED}Error: Password cannot be empty.${NC}"; exit 1
             fi
             ROOT_PASS="$2"; shift 2
@@ -106,6 +155,12 @@ while [[ "$#" -gt 0 ]]; do
             DNS_SERVERS="$(echo "$2" | tr ',' ' ')"
             shift 2
             ;;
+        -f|--force)
+            FORCE_MODE=1; shift 1
+            ;;
+        -v|--version)
+            show_version; exit 0
+            ;;
         -h|--help)
             show_help; exit 0
             ;;
@@ -117,10 +172,16 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+# --- Run environment checks (root, arch) ---
+check_env
+
 if [ "$OS_TYPE" = "debian" ] && [ -z "$RELEASE" ]; then RELEASE="12"; fi
 if [ "$OS_TYPE" = "ubuntu" ] && [ -z "$RELEASE" ]; then RELEASE="24"; fi
 
-if [ -z "$ROOT_PASS" ]; then
+# --- Password handling ---
+if [ -n "$ROOT_PASS" ]; then
+    validate_password "$ROOT_PASS"
+else
     ROOT_PASS="$(generate_random_password)"
     PASSWORD_WAS_GENERATED=1
 fi
@@ -203,13 +264,15 @@ fi
 
 echo -e "\n${BOLD}${CYAN}Step: Detecting environment and network...${NC}"
 
-# --- Cleanup trap (Ubuntu path) ---
+# --- Cleanup trap ---
 cleanup() {
     umount /tmp/img_root_mnt 2>/dev/null || true
     umount /tmp/efi_fix_mnt  2>/dev/null || true
     qemu-nbd --disconnect /dev/nbd0 2>/dev/null || true
+    # Clean temporary work directory
+    rm -rf /var/tmp/osnova 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP PIPE
 
 # --- Disk Detection ---
 REAL_DISK=""
@@ -221,7 +284,12 @@ if [ -d /sys/block ]; then
     done
 fi
 if [ -z "$REAL_DISK" ] && command -v lsblk >/dev/null; then
-    REAL_DISK="/dev/$(lsblk -dn -o NAME | head -n1)"
+    # Exclude loop, nbd, ram, and other virtual block devices
+    REAL_DISK="/dev/$(lsblk -dn -o NAME,TYPE | grep 'disk' | grep -vE '^(loop|nbd|ram|zram)' | awk '{print $1}' | head -n1)"
+    # Validate we actually got something useful
+    if [ "$REAL_DISK" = "/dev/" ] || [ -z "$REAL_DISK" ]; then
+        REAL_DISK=""
+    fi
 fi
 if [ -z "$REAL_DISK" ]; then
     REAL_DISK="/dev/sda"
@@ -275,6 +343,22 @@ echo -e "      Target OS : ${YELLOW}${DISPLAY_NAME}${NC}"
 echo -e "      Root Disk : ${YELLOW}${REAL_DISK}${NC}"
 echo -e "      IP Config : ${YELLOW}${V_IP} / ${V_NETMASK}${NC}"
 
+# ==============================================================================
+# CONFIRMATION PROMPT (skip with --force / -f)
+# ==============================================================================
+if [ "$FORCE_MODE" -eq 0 ]; then
+    echo ""
+    echo -e "${RED}${BOLD}WARNING: This will ERASE ALL DATA on ${REAL_DISK} and reinstall ${DISPLAY_NAME}.${NC}"
+    echo -e "${RED}${BOLD}This action is irreversible.${NC}"
+    echo ""
+    echo -ne "${YELLOW}Type 'yes' to continue, or anything else to abort: ${NC}"
+    read -r CONFIRM
+    if [ "$CONFIRM" != "yes" ]; then
+        echo -e "${CYAN}Aborted. No changes were made.${NC}"
+        exit 0
+    fi
+fi
+
 WORKDIR="/var/tmp/osnova"
 rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
 
@@ -300,19 +384,46 @@ GatewayOnLink=yes"
         NETWORKD_ROUTE_EXTRA=""
     fi
 
+    # Determine if IPv6 /128 prefix requires GatewayOnLink
+    NETWORKD_IPV6_ROUTE_EXTRA=""
+    if [ -n "$V_IP6" ] && [ -n "$V_PREFIX6" ] && [ -n "$V_GATEWAY6" ]; then
+        if [ "$V_PREFIX6" = "128" ]; then
+            NETWORKD_IPV6_ROUTE_EXTRA="
+[Route]
+Destination=::/0
+Gateway=${V_GATEWAY6}
+GatewayOnLink=yes"
+        fi
+    fi
+
     cat > "${WORKDIR}/post-install.sh" <<POSTINSTALL
 #!/bin/sh
 set -e
 
 # --- SSH config ---
-sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config
+# Use sshd_config.d override for reliability (Debian 12+ supports this)
+mkdir -p /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/99-osnova.conf <<'SSHEOF'
+PermitRootLogin yes
+PasswordAuthentication yes
+Port ${SSH_PORT}
+SSHEOF
+
+# Also patch main config as fallback for older systems
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config
 sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config
-sed -i 's/#Port 22/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
-sed -i 's/^Port .*/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
+# Handle Port: replace existing or append if missing
+if grep -qE '^#?\s*Port\s' /etc/ssh/sshd_config; then
+    sed -i 's/^#\?\s*Port\s.*/Port ${SSH_PORT}/g' /etc/ssh/sshd_config
+else
+    echo "Port ${SSH_PORT}" >> /etc/ssh/sshd_config
+fi
 
 # --- BBR ---
-echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
-echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
+cat > /etc/sysctl.d/99-osnova-bbr.conf <<'BBREOF'
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+BBREOF
 
 # --- Network: systemd-networkd with Type=ether ---
 # Matches all physical ethernet NICs regardless of naming scheme
@@ -337,6 +448,17 @@ cat >> /etc/systemd/network/10-static.network <<EOF2
 Address=${V_IP6}/${V_PREFIX6}
 EOF2
 $(if [ -n "${V_GATEWAY6}" ]; then
+  if [ "${V_PREFIX6}" = "128" ]; then
+cat <<GW6BLOCK
+cat >> /etc/systemd/network/10-static.network <<EOF3
+
+[Route]
+Gateway=${V_GATEWAY6}
+Destination=::/0
+GatewayOnLink=yes
+EOF3
+GW6BLOCK
+  else
 cat <<GW6BLOCK
 cat >> /etc/systemd/network/10-static.network <<EOF3
 
@@ -345,6 +467,7 @@ Gateway=${V_GATEWAY6}
 Destination=::/0
 EOF3
 GW6BLOCK
+  fi
 fi)
 IPV6BLOCK
 fi)
@@ -361,7 +484,7 @@ sync
 POSTINSTALL
     chmod +x "${WORKDIR}/post-install.sh"
 
-    cat > "${WORKDIR}/preseed.cfg" <<EOF
+    cat > "${WORKDIR}/preseed.cfg" <<'PRESEEDEOF'
 d-i debconf/priority string critical
 d-i auto-install/enable boolean true
 d-i debian-installer/locale string en_US.UTF-8
@@ -369,6 +492,10 @@ d-i console-setup/ask_detect boolean false
 d-i keyboard-configuration/xkb-keymap select us
 d-i netcfg/choose_interface select auto
 d-i netcfg/disable_autoconfig boolean true
+PRESEEDEOF
+
+    # Append network and disk config (these contain variables, use expanding heredoc)
+    cat >> "${WORKDIR}/preseed.cfg" <<EOF
 d-i netcfg/get_ipaddress string ${V_IP}
 d-i netcfg/get_netmask string ${V_NETMASK}
 d-i netcfg/get_gateway string ${V_GATEWAY}
@@ -390,8 +517,13 @@ d-i grub-installer/with_other_os boolean true
 d-i grub-installer/bootdev string ${REAL_DISK}
 
 d-i passwd/make-user boolean false
-d-i passwd/root-password password ${ROOT_PASS}
-d-i passwd/root-password-again password ${ROOT_PASS}
+EOF
+
+    # Append password lines using printf to avoid any shell expansion issues
+    printf 'd-i passwd/root-password password %s\n' "${ROOT_PASS}" >> "${WORKDIR}/preseed.cfg"
+    printf 'd-i passwd/root-password-again password %s\n' "${ROOT_PASS}" >> "${WORKDIR}/preseed.cfg"
+
+    cat >> "${WORKDIR}/preseed.cfg" <<'PRESEEDTAILEOF'
 d-i finish-install/reboot_in_progress note
 
 d-i preseed/late_command string \
@@ -399,7 +531,7 @@ d-i preseed/late_command string \
     in-target chmod +x /tmp/post-install.sh; \
     in-target /tmp/post-install.sh; \
     sync; sleep 3
-EOF
+PRESEEDTAILEOF
 
     cd "$WORKDIR" && tar -xzf netboot.tar.gz
     mkdir -p initrd_work && cd initrd_work
@@ -434,6 +566,16 @@ install_ubuntu() {
     echo -e "${CYAN}Downloading Ubuntu cloud image (~600MB)...${NC}"
     wget --continue --show-progress -O "${IMG_PATH}" "${IMG_URL}"
 
+    # Verify image integrity
+    echo -e "${CYAN}Verifying image integrity...${NC}"
+    if ! qemu-img check "${IMG_PATH}" >/dev/null 2>&1; then
+        echo -e "${RED}Error: Downloaded image failed integrity check.${NC}"
+        echo -e "${YELLOW}The file may be corrupted or incomplete. Please try again.${NC}"
+        rm -f "${IMG_PATH}"
+        exit 1
+    fi
+    echo -e "${GREEN}Image integrity OK.${NC}"
+
     echo -e "${CYAN}Mounting QCOW2 image via NBD...${NC}"
     modprobe nbd max_part=16
     sleep 1
@@ -449,13 +591,18 @@ install_ubuntu() {
     mkdir -p "${ROOT_MNT}"
     mount -t ext4 "${IMG_ROOT}" "${ROOT_MNT}"
 
-    # 1. Root password
+    # 1. Root password (use chpasswd via chroot — safe for all character sets in validated passwords)
     echo "root:${ROOT_PASS}" | chroot "${ROOT_MNT}" chpasswd
 
     # 2. SSH — patch main config + write .d override
     sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' "${ROOT_MNT}/etc/ssh/sshd_config"
     sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' "${ROOT_MNT}/etc/ssh/sshd_config"
-    sed -i "s/^#\?Port .*/Port ${SSH_PORT}/" "${ROOT_MNT}/etc/ssh/sshd_config"
+    # Handle Port: replace existing or append if missing
+    if grep -qE '^#?\s*Port\s' "${ROOT_MNT}/etc/ssh/sshd_config"; then
+        sed -i "s/^#\?\s*Port\s.*/Port ${SSH_PORT}/" "${ROOT_MNT}/etc/ssh/sshd_config"
+    else
+        echo "Port ${SSH_PORT}" >> "${ROOT_MNT}/etc/ssh/sshd_config"
+    fi
     mkdir -p "${ROOT_MNT}/etc/ssh/sshd_config.d"
     rm -f "${ROOT_MNT}/etc/ssh/sshd_config.d/"*
     cat > "${ROOT_MNT}/etc/ssh/sshd_config.d/99-osnova.conf" <<EOF
@@ -473,14 +620,22 @@ EOF
     # 4. Static netplan — type: ethernet match covers all physical NICs
     rm -f "${ROOT_MNT}/etc/netplan/"*.yaml
 
-    # Build addresses and routes (handle /32 with on-link)
+    # Build addresses and routes (handle /32 IPv4 and /128 IPv6 with on-link)
     if [ -n "$V_IP6" ] && [ -n "$V_PREFIX6" ] && [ -n "$V_GATEWAY6" ]; then
         NETPLAN_ADDRESSES="[${V_IP}/${V_PREFIX}, ${V_IP6}/${V_PREFIX6}]"
+        # IPv4 route
         if [ "$V_PREFIX" = "32" ]; then
-            NETPLAN_ROUTES="[{to: default, via: ${V_GATEWAY}, on-link: true}, {to: \"::/0\", via: \"${V_GATEWAY6}\"}]"
+            NETPLAN_V4_ROUTE="{to: default, via: ${V_GATEWAY}, on-link: true}"
         else
-            NETPLAN_ROUTES="[{to: default, via: ${V_GATEWAY}}, {to: \"::/0\", via: \"${V_GATEWAY6}\"}]"
+            NETPLAN_V4_ROUTE="{to: default, via: ${V_GATEWAY}}"
         fi
+        # IPv6 route
+        if [ "$V_PREFIX6" = "128" ]; then
+            NETPLAN_V6_ROUTE="{to: \"::/0\", via: \"${V_GATEWAY6}\", on-link: true}"
+        else
+            NETPLAN_V6_ROUTE="{to: \"::/0\", via: \"${V_GATEWAY6}\"}"
+        fi
+        NETPLAN_ROUTES="[${NETPLAN_V4_ROUTE}, ${NETPLAN_V6_ROUTE}]"
     else
         NETPLAN_ADDRESSES="[${V_IP}/${V_PREFIX}]"
         if [ "$V_PREFIX" = "32" ]; then
@@ -605,6 +760,8 @@ menuentry '${GRUB_TITLE}' {
 EOF
     chmod +x /etc/grub.d/40_custom
     sed -i "s/GRUB_DEFAULT=.*/GRUB_DEFAULT=\"${GRUB_TITLE}\"/" /etc/default/grub
+    # Idempotent: remove existing line before appending
+    sed -i '/^GRUB_DISABLE_OS_PROBER=/d' /etc/default/grub
     echo "GRUB_DISABLE_OS_PROBER=true" >> /etc/default/grub
     update-grub || grub2-mkconfig -o /boot/grub/grub.cfg
 fi
