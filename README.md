@@ -1,6 +1,6 @@
 # OsNova
 
-> System Deployment & Reinstallation Engine for VPS and bare-metal servers.
+> Deterministic OS Reinstallation Engine for VPS and bare-metal servers.
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](./LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.0-brightgreen.svg)](#)
@@ -16,6 +16,8 @@
 OsNova is an automated Linux deployment and reinstallation tool for VPS and bare-metal systems.
 
 It provides a deterministic way to reinstall Debian or Ubuntu directly from the running system using official upstream resources, without requiring a rescue ISO or external recovery environment.
+
+OsNova prioritizes deterministic behavior, transparency, and minimal assumptions about the host environment.
 
 This project is intended for operators who need a fast, reproducible, infrastructure-oriented reinstall workflow.
 
@@ -256,6 +258,9 @@ It is not designed as a rescue panel replacement or a consumer desktop installer
 ## License
 
 GPL-3.0  
+
+OsNova is distributed under GPL-3.0.  
+All components comply with upstream licensing requirements of the Linux ecosystem.
 
 ---
 
