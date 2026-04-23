@@ -267,3 +267,6 @@ All components comply with upstream licensing requirements of the Linux ecosyste
 ## Philosophy
 
 Minimal assumptions. Direct execution. Reproducible results.
+---
+
+Part of the [Nova infrastructure toolkit](https://github.com/harryheros).
